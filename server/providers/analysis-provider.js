@@ -65,10 +65,11 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
   const afterEvaluation = await getStockfishEval(fenAfter, 14, engineMode);
   const isPlayerMove = (index % 2 === 0 && playerColor === 'white') || (index % 2 === 1 && playerColor === 'black');
   const currentEval = afterEvaluation?.eval || 0;
+  const previousEval = beforeEvaluation.eval || 0;
   const evalDrop = getEvalDrop({
     isPlayerMove,
     isWhiteMove: index % 2 === 0,
-    previousEval: beforeEvaluation.eval || 0,
+    previousEval,
     currentEval,
   });
 
@@ -86,6 +87,8 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
     fenBefore,
     fenAfter,
     eval: currentEval,
+    beforeEval: previousEval,
+    evalSwing: Number((currentEval - previousEval).toFixed(2)),
     evalDrop,
     classification,
     phase: getGamePhase(index, totalMoves),

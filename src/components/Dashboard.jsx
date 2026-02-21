@@ -18,6 +18,7 @@ export default function Dashboard({
   const aggregatePuzzleProgress = summarizePuzzleProgress(puzzleProgressByPattern);
   const trendSeries = buildTrendSeries(analysisRuns);
   const deltas = computeDeltaSummary(analysisRuns);
+  const reviewQueue = buildReviewQueue(games);
 
   const colorForAccuracy = (val) =>
     val > 70 ? 'var(--accent-green)' : val > 55 ? 'var(--accent-amber)' : 'var(--accent-red)';
@@ -51,6 +52,27 @@ export default function Dashboard({
         <Widget title="Puzzle Completed" value={aggregatePuzzleProgress.completedCount} detail="Theme-targeted solves" />
         <Widget title="Puzzle Streak" value={aggregatePuzzleProgress.streak} detail={`Best: ${aggregatePuzzleProgress.bestStreak}`} />
         <Widget title="Puzzle Accuracy" value={`${aggregatePuzzleProgress.accuracy}%`} detail={`${aggregatePuzzleProgress.attempts} attempts`} />
+      </div>
+
+      <div className="panel animate-in delay-1">
+        <div className="panel-header">
+          <h3>🚀 Priority Queue</h3>
+        </div>
+        {reviewQueue.length === 0 ? (
+          <div className="pattern-desc">No critical games detected yet. Keep analyzing new games.</div>
+        ) : (
+          reviewQueue.map((item) => (
+            <div key={item.id} className="pattern-item" onClick={() => onSelectGame(item)}>
+              <div className="pattern-name">
+                🧠 Review vs {item.opponent}
+                <span className="badge badge-amber" style={{ fontSize: 10 }}>
+                  {item.analysis?.blunders || 0} blunders · {item.analysis?.accuracy || 0}%
+                </span>
+              </div>
+              <div className="pattern-desc">{item.opening} · {item.platform} · {item.timeControl}</div>
+            </div>
+          ))
+        )}
       </div>
 
       <div className="panel animate-in delay-1">
@@ -191,3 +213,16 @@ function averageFromGames(games, selector) {
   return Math.round(total / games.length);
 }
 
+function buildReviewQueue(games) {
+  return [...games]
+    .filter((game) => game.analysis)
+    .sort((a, b) => getReviewScore(b) - getReviewScore(a))
+    .slice(0, 3);
+}
+
+function getReviewScore(game) {
+  const blunders = game.analysis?.blunders || 0;
+  const mistakes = game.analysis?.mistakes || 0;
+  const accuracyPenalty = Math.max(0, 80 - (game.analysis?.accuracy || 0));
+  return blunders * 5 + mistakes * 2 + accuracyPenalty;
+}

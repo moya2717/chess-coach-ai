@@ -87,4 +87,6 @@ test('analyzeGameWithEngine emits varied move classifications with engine best-m
   );
   assert.equal(playerMoves[1].bestMove, 'g1f3');
   assert.equal(playerMoves[1].playerMatchedBestMove, true);
+  assert.equal(typeof playerMoves[0].beforeEval, 'number');
+  assert.equal(typeof playerMoves[0].evalSwing, 'number');
 });
