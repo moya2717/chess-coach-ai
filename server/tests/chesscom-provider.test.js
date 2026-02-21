@@ -17,6 +17,9 @@ test('fetchChesscomRecentGames maps upstream games to app format', async () => {
         pgn: '[ECO "C20"]\n[Opening "King Pawn Game"]',
         url: 'https://chess.com/game/1',
         time_control: '600+5',
+        time_class: 'rapid',
+        rated: true,
+        rules: 'chess',
         end_time: 1704067200,
       }],
     });
@@ -29,7 +32,7 @@ test('fetchChesscomRecentGames maps upstream games to app format', async () => {
   assert.equal(games[0].id, 'chesscom-g1');
   assert.equal(games[0].platform, 'chess.com');
   assert.equal(games[0].result, 'win');
-  assert.equal(games[0].timeControl, '10+5');
+  assert.equal(games[0].timeControl, 'Rapid');
   assert.equal(games[0].eco, 'C20');
 });
 
@@ -49,6 +52,9 @@ test('fetchChesscomRecentGames excludes coach and bot games from pulled data', a
           pgn: '[ECO "C20"]\n[Opening "King Pawn Game"]',
           url: 'https://chess.com/game/2',
           time_control: '600+5',
+          time_class: 'blitz',
+          rated: true,
+          rules: 'chess',
           end_time: 1704067201,
         },
         {
@@ -58,6 +64,9 @@ test('fetchChesscomRecentGames excludes coach and bot games from pulled data', a
           pgn: '[ECO "C44"]\n[Opening "Scotch Game"]',
           url: 'https://chess.com/game/3',
           time_control: '600+5',
+          time_class: 'blitz',
+          rated: true,
+          rules: 'chess',
           end_time: 1704067202,
         },
       ],
@@ -88,6 +97,9 @@ test('fetchChesscomRecentGames keeps only games that include the requested usern
           pgn: '[ECO "C20"]\n[Opening "King Pawn Game"]',
           url: 'https://chess.com/game/4',
           time_control: '600+5',
+          time_class: 'rapid',
+          rated: true,
+          rules: 'chess',
           end_time: 1704067203,
         },
         {
@@ -97,6 +109,9 @@ test('fetchChesscomRecentGames keeps only games that include the requested usern
           pgn: '[ECO "C44"]\n[Opening "Scotch Game"]',
           url: 'https://chess.com/game/5',
           time_control: '600+5',
+          time_class: 'rapid',
+          rated: true,
+          rules: 'chess',
           end_time: 1704067204,
         },
       ],
@@ -118,3 +133,61 @@ function okJson(payload) {
     async json() { return payload; },
   };
 }
+
+
+test('fetchChesscomRecentGames includes only rated daily/rapid/blitz/bullet chess games', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    const value = String(url);
+    if (value.includes('/archives')) {
+      return okJson({ archives: ['https://api.chess.com/pub/player/demo/games/2024/01'] });
+    }
+    return okJson({
+      games: [
+        {
+          uuid: 'g6',
+          white: { username: 'demo', rating: 1500, result: 'win' },
+          black: { username: 'opp1', rating: 1490, result: 'checkmated' },
+          pgn: '',
+          url: 'https://chess.com/game/6',
+          time_control: '1/86400',
+          time_class: 'daily',
+          rated: true,
+          rules: 'chess',
+          end_time: 1704067205,
+        },
+        {
+          uuid: 'g7',
+          white: { username: 'demo', rating: 1500, result: 'win' },
+          black: { username: 'opp2', rating: 1490, result: 'checkmated' },
+          pgn: '',
+          url: 'https://chess.com/game/7',
+          time_control: '180+0',
+          time_class: 'blitz',
+          rated: false,
+          rules: 'chess',
+          end_time: 1704067206,
+        },
+        {
+          uuid: 'g8',
+          white: { username: 'demo', rating: 1500, result: 'win' },
+          black: { username: 'opp3', rating: 1490, result: 'checkmated' },
+          pgn: '',
+          url: 'https://chess.com/game/8',
+          time_control: '180+0',
+          time_class: 'blitz',
+          rated: true,
+          rules: 'chess960',
+          end_time: 1704067207,
+        },
+      ],
+    });
+  };
+
+  const games = await fetchChesscomRecentGames('demo', 3);
+  global.fetch = originalFetch;
+
+  assert.equal(games.length, 1);
+  assert.equal(games[0].id, 'chesscom-g6');
+  assert.equal(games[0].timeControl, 'Daily');
+});

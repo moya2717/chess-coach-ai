@@ -2,6 +2,7 @@ import { ApiError } from '../lib/errors.js';
 import { requestWithRetry } from '../lib/http-client.js';
 
 const BASE_URL = 'https://api.chess.com/pub';
+const INCLUDED_TIME_CLASSES = new Set(['daily', 'rapid', 'blitz', 'bullet']);
 
 export async function fetchChesscomProfile(username) {
   try {
@@ -26,13 +27,13 @@ export async function fetchChesscomRecentGames(username, count = 20) {
   const allGames = [];
   for (let idx = archives.length - 1; idx >= 0 && allGames.length < count; idx -= 1) {
     const month = await requestWithRetry(archives[idx]);
-    allGames.push(...(month.games || []));
+    const monthGames = (month.games || []).filter((game) => isIncludedChesscomGame(game, normalizedUsername));
+    allGames.push(...monthGames);
   }
 
   return allGames
     .slice(-count)
     .reverse()
-    .filter((game) => isGameForUser(game, normalizedUsername))
     .map((game, index) => processChessComGame(game, normalizedUsername, index))
     .filter((game) => !isCoachGame(game));
 }
@@ -76,13 +77,20 @@ function processChessComGame(rawGame, username, index) {
     opponentRating: opponent?.rating || 0,
     playerRating: player?.rating || 0,
     result,
-    timeControl: parseTimeControl(rawGame.time_control || ''),
+    timeControl: parseTimeControl(rawGame.time_control || '', rawGame.time_class || ''),
     date: rawGame.end_time ? new Date(rawGame.end_time * 1000).toISOString().split('T')[0] : 'Unknown',
     opening: extractOpeningFromPGN(rawGame.pgn),
     eco: extractECOFromPGN(rawGame.pgn),
     analysis: null,
     moves: [],
   };
+}
+
+function isIncludedChesscomGame(rawGame, username) {
+  if (!isGameForUser(rawGame, username)) return false;
+  if (!rawGame.rated) return false;
+  if (rawGame.rules && rawGame.rules !== 'chess') return false;
+  return INCLUDED_TIME_CLASSES.has((rawGame.time_class || '').toLowerCase());
 }
 
 function isGameForUser(rawGame, username) {
@@ -102,7 +110,12 @@ function resolveResult(player, opponent) {
   return 'draw';
 }
 
-function parseTimeControl(timeControl) {
+function parseTimeControl(timeControl, timeClass) {
+  const normalizedTimeClass = (timeClass || '').toLowerCase();
+  if (normalizedTimeClass === 'daily') return 'Daily';
+  if (normalizedTimeClass === 'rapid') return 'Rapid';
+  if (normalizedTimeClass === 'blitz') return 'Blitz';
+  if (normalizedTimeClass === 'bullet') return 'Bullet';
   if (timeControl.includes('+')) {
     const [base, increment] = timeControl.split('+');
     return `${Math.floor(parseInt(base, 10) / 60)}+${increment}`;
