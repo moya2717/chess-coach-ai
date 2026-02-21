@@ -239,6 +239,7 @@ function App() {
     await refreshAnalysisInBackground({
       games,
       engineMode: resolveRefreshMode('auto', games),
+      forceRefresh: true,
       authUser,
       usernames,
       setGames,
@@ -446,7 +447,7 @@ function shouldRunBackgroundRefresh(engineMode, initialMode, games) {
   return games.some((game) => deriveAnalysisStatus(game.analysis) === 'fallback-material');
 }
 
-async function analyzeGamesSequentially({ games, mode, onProgress = () => {} }) {
+async function analyzeGamesSequentially({ games, mode, onProgress = () => {}, forceRefresh = false }) {
   for (let i = 0; i < games.length; i += 1) {
     const game = games[i];
     if (!game.pgn) {
@@ -458,7 +459,7 @@ async function analyzeGamesSequentially({ games, mode, onProgress = () => {} }) 
 
     onProgress({ index: i, total: games.length, opponent: game.opponent || 'Unknown' });
     try {
-      game.analysis = await analyzeGame(game.pgn, game.playerColor, mode);
+      game.analysis = await analyzeGame(game.pgn, game.playerColor, mode, { forceRefresh });
       game.analysisStatus = deriveAnalysisStatus(game.analysis);
     } catch (err) {
       console.warn(`Analysis failed for game ${i}:`, err.message);
@@ -477,6 +478,7 @@ async function refreshAnalysisInBackground({
   setPatterns,
   setAnalysisRuns,
   setAnalysisProgress,
+  forceRefresh = false,
 }) {
   const refreshedGames = games.map((game) => ({ ...game }));
   setAnalysisProgress({ active: true, completed: 0, total: refreshedGames.length });
@@ -490,7 +492,7 @@ async function refreshAnalysisInBackground({
     }
 
     try {
-      game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode);
+      game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode, { forceRefresh });
       game.analysisStatus = deriveAnalysisStatus(game.analysis);
       setGames([...refreshedGames]);
       setPatterns(resolvePatterns(refreshedGames));

@@ -8,7 +8,39 @@ const ENGINE_COOLDOWN_MS = 2 * 60_000;
 let engineUnavailableUntil = 0;
 let localStockfishAvailable;
 
-export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMode = 'auto') {
+
+export async function buildEngineLineFromFen(fen, engineMode = 'auto', options = {}) {
+  const chess = new Chess(fen);
+  const line = [];
+  const maxPlies = Math.max(1, Math.min(Number(options.maxPlies || 6), 12));
+
+  for (let ply = 0; ply < maxPlies; ply += 1) {
+    const evaluation = await getStockfishEval(chess.fen(), 14, engineMode, options);
+    const bestMove = evaluation.bestMove;
+    if (!bestMove) break;
+
+    const san = toSanFromUci(chess, bestMove);
+    if (!san) break;
+
+    line.push({
+      ply: ply + 1,
+      fen: chess.fen(),
+      uci: bestMove,
+      san,
+      eval: evaluation.eval || 0,
+      source: evaluation.source || 'unknown',
+    });
+    chess.move(san);
+  }
+
+  return {
+    startFen: fen,
+    line,
+    quality: summarizeLineQuality(line),
+  };
+}
+
+export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMode = 'auto', options = {}) {
   const chess = new Chess();
   chess.loadPgn(pgn);
 
@@ -16,7 +48,7 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
   chess.reset();
 
   const analyzedMoves = [];
-  let prevEvaluation = await getStockfishEval(chess.fen(), 14, engineMode);
+  let prevEvaluation = await getStockfishEval(chess.fen(), 14, engineMode, options);
   let blunders = 0;
   let mistakes = 0;
   let inaccuracies = 0;
@@ -25,7 +57,7 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
   const endgameAccuracy = [];
 
   for (let i = 0; i < moves.length; i += 1) {
-    const analyzedMove = await analyzeMove(chess, moves[i], i, moves.length, prevEvaluation, playerColor, engineMode);
+    const analyzedMove = await analyzeMove(chess, moves[i], i, moves.length, prevEvaluation, playerColor, engineMode, options);
     prevEvaluation = analyzedMove.afterEvaluation;
 
     if (analyzedMove.isPlayerMove) {
@@ -57,13 +89,13 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
   };
 }
 
-async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor, engineMode) {
+async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor, engineMode, options = {}) {
   const fenBefore = chess.fen();
   const moveIndex = index + 1;
   const beforeEvaluation = prevEval || { eval: 0, source: 'material', bestMove: null };
   chess.move(move.san);
   const fenAfter = chess.fen();
-  const afterEvaluation = await getStockfishEval(fenAfter, 14, engineMode);
+  const afterEvaluation = await getStockfishEval(fenAfter, 14, engineMode, options);
   const isPlayerMove = (index % 2 === 0 && playerColor === 'white') || (index % 2 === 1 && playerColor === 'black');
   const currentEval = afterEvaluation?.eval || 0;
   const previousEval = beforeEvaluation.eval || 0;
@@ -149,17 +181,17 @@ function mergeEvalSources(beforeSource, afterSource) {
   return afterSource || beforeSource || 'unknown';
 }
 
-async function getStockfishEval(fen, depth = 14, engineMode = 'auto') {
+async function getStockfishEval(fen, depth = 14, engineMode = 'auto', options = {}) {
   if (engineMode === 'local') return getLocalEvalWithFallback(fen, depth);
-  if (engineMode === 'web') return getWebEvalWithFallback(fen, depth);
+  if (engineMode === 'web') return getWebEvalWithFallback(fen, depth, options);
 
   const local = await getLocalEval(fen, depth);
   if (local) return local;
-  return getWebEvalWithFallback(fen, depth);
+  return getWebEvalWithFallback(fen, depth, options);
 }
 
-async function getWebEvalWithFallback(fen, depth) {
-  if (!isEngineAvailable()) return { eval: estimateMaterialEval(fen), source: 'material' };
+async function getWebEvalWithFallback(fen, depth, options = {}) {
+  if (!options.bypassCooldown && !isEngineAvailable()) return { eval: estimateMaterialEval(fen), source: 'material' };
   try {
     const data = await requestWithRetry('https://chess-api.com/v1', {
       params: { fen, depth },
@@ -282,6 +314,23 @@ function getGamePhase(moveIndex, totalMoves) {
   if (progress < 0.25) return 'opening';
   if (progress < 0.7) return 'middlegame';
   return 'endgame';
+}
+
+
+function summarizeLineQuality(line) {
+  if (!line.length) return 'limited';
+  const hasMaterial = line.some((step) => step.source === 'material');
+  return hasMaterial ? 'mixed' : 'engine';
+}
+
+function toSanFromUci(chess, uciMove) {
+  const match = String(uciMove || '').match(/^([a-h][1-8])([a-h][1-8])([qrbn])?$/);
+  if (!match) return null;
+  const [, from, to, promotion] = match;
+  const move = chess.move({ from, to, promotion });
+  if (!move) return null;
+  chess.undo();
+  return move.san;
 }
 
 function avg(numbers) {

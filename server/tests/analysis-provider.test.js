@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeGameWithEngine } from '../providers/analysis-provider.js';
+import { analyzeGameWithEngine, buildEngineLineFromFen } from '../providers/analysis-provider.js';
 
 test('analyzeGameWithEngine stops calling remote engine after first failure', async () => {
   const originalFetch = global.fetch;
@@ -105,4 +105,63 @@ test('analyzeGameWithEngine returns analysis quality metadata', async () => {
   assert.equal(analysis.quality.primarySource, 'material');
   assert.equal(typeof analysis.quality.engineShare, 'number');
   assert.equal(analysis.quality.needsRefinement, true);
+});
+
+
+test('analyzeGameWithEngine bypasses cooldown when explicitly forced', async () => {
+  const originalFetch = global.fetch;
+  const originalNow = Date.now;
+  Date.now = () => originalNow() + 10 * 60_000;
+
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      throw new Error('network down');
+    }
+    return {
+      ok: true,
+      json: async () => ({ eval: 22, move: 'e2e4' }),
+    };
+  };
+
+  const pgn = '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6';
+  await analyzeGameWithEngine(pgn, 'white', 'web');
+  const callsAfterFirstRun = calls;
+  await analyzeGameWithEngine(pgn, 'white', 'web', { bypassCooldown: true });
+
+  global.fetch = originalFetch;
+  Date.now = originalNow;
+
+  assert.equal(callsAfterFirstRun, 1);
+  assert.ok(calls > callsAfterFirstRun);
+});
+
+
+test('buildEngineLineFromFen returns deterministic continuation line', async () => {
+  const originalFetch = global.fetch;
+  const responses = [
+    { eval: 20, move: 'e2e4' },
+    { eval: 12, move: 'e7e5' },
+    { eval: 35, move: 'g1f3' },
+  ];
+
+  global.fetch = async () => {
+    const next = responses.shift() || { eval: 0, move: null };
+    return {
+      ok: true,
+      json: async () => next,
+    };
+  };
+
+  const line = await buildEngineLineFromFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 'web', {
+    maxPlies: 3,
+    bypassCooldown: true,
+  });
+
+  global.fetch = originalFetch;
+
+  assert.equal(line.line.length, 3);
+  assert.deepEqual(line.line.map((step) => step.san), ['e4', 'e5', 'Nf3']);
+  assert.equal(line.quality, 'engine');
 });
