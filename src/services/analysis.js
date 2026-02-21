@@ -16,9 +16,15 @@ export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto
   return apiPost('/api/analyze', {
     pgn,
     playerColor,
-    cacheKey: chess.header().Site || chess.header().Event || pgn.slice(0, 64),
+    cacheKey: buildAnalysisCacheKey({ pgn, headers: chess.header(), playerColor, engineMode }),
     engineMode,
-  });
+  }, { timeout: 120000 });
+}
+
+export function buildAnalysisCacheKey({ pgn, headers = {}, playerColor = 'white', engineMode = 'auto' }) {
+  const idSeed = headers.Site || headers.Link || headers.UTCDate || headers.Date || headers.Event || '';
+  const canonicalSeed = idSeed ? `${idSeed}:${playerColor}:${engineMode}` : `${playerColor}:${engineMode}`;
+  return `${canonicalSeed}:${hashString(pgn)}`;
 }
 
 /**
@@ -111,6 +117,11 @@ function avg(arr) {
   return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function hashString(value = '') {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
 }

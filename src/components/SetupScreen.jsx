@@ -69,7 +69,7 @@ export default function SetupScreen({ onSubmit, error }) {
         <div className="input-group">
           <label>Analysis Engine</label>
           <select value={engineMode} onChange={(e) => setEngineMode(e.target.value)}>
-            <option value="auto">Auto (web first, local/material fallback)</option>
+            <option value="auto">Auto (local first, then web/material fallback)</option>
             <option value="web">Stockfish Web API</option>
             <option value="local">Stockfish Local Binary</option>
           </select>

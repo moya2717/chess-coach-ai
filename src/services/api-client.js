@@ -13,7 +13,7 @@ export async function apiGet(path, params = {}) {
   return response.data;
 }
 
-export async function apiPost(path, payload = {}) {
-  const response = await client.post(path, payload);
+export async function apiPost(path, payload = {}, config = {}) {
+  const response = await client.post(path, payload, config);
   return response.data;
 }

@@ -1,4 +1,11 @@
+import { useMemo, useState } from 'react';
 import { buildTrendSeries, computeDeltaSummary, formatDelta } from '../services/dashboard-metrics';
+
+const TREND_METRICS = {
+  accuracy: { title: 'Accuracy Over Time', unit: '%' },
+  blundersPerGame: { title: 'Blunders Per Game', unit: '' },
+  endgameWeakness: { title: 'Endgame Weakness (Lower is Better)', unit: '%' },
+};
 
 export default function Dashboard({
   games,
@@ -8,6 +15,8 @@ export default function Dashboard({
   onSelectGame,
   onNavigateToPuzzles,
 }) {
+  const [trendMetric, setTrendMetric] = useState('accuracy');
+  const [resultFilter, setResultFilter] = useState('all');
   const totalGames = games.length;
   const wins = games.filter((g) => g.result === 'win').length;
   const losses = games.filter((g) => g.result === 'loss').length;
@@ -18,6 +27,10 @@ export default function Dashboard({
   const aggregatePuzzleProgress = summarizePuzzleProgress(puzzleProgressByPattern);
   const trendSeries = buildTrendSeries(analysisRuns);
   const deltas = computeDeltaSummary(analysisRuns);
+  const filteredGames = useMemo(() => {
+    if (resultFilter === 'all') return games;
+    return games.filter((game) => game.result === resultFilter);
+  }, [games, resultFilter]);
 
   const colorForAccuracy = (val) =>
     val > 70 ? 'var(--accent-green)' : val > 55 ? 'var(--accent-amber)' : 'var(--accent-red)';
@@ -65,9 +78,24 @@ export default function Dashboard({
               <DeltaCard label="Opening weakness" value={formatDelta(deltas.openingWeakness, '%')} positiveGood={false} />
               <DeltaCard label="Endgame weakness" value={formatDelta(deltas.endgameWeakness, '%')} positiveGood={false} />
             </div>
-            <TrendChart title="Accuracy Over Time" data={trendSeries} dataKey="accuracy" unit="%" />
-            <TrendChart title="Blunders Per Game" data={trendSeries} dataKey="blundersPerGame" />
-            <TrendChart title="Phase Weakness (Lower is Better)" data={trendSeries} dataKey="endgameWeakness" unit="%" />
+            <div className="dashboard-controls">
+              {Object.entries(TREND_METRICS).map(([key, metric]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`dashboard-toggle ${trendMetric === key ? 'active' : ''}`}
+                  onClick={() => setTrendMetric(key)}
+                >
+                  {metric.title}
+                </button>
+              ))}
+            </div>
+            <TrendChart
+              title={TREND_METRICS[trendMetric].title}
+              data={trendSeries}
+              dataKey={trendMetric}
+              unit={TREND_METRICS[trendMetric].unit}
+            />
           </>
         )}
       </div>
@@ -106,9 +134,21 @@ export default function Dashboard({
       <div className="panel animate-in delay-3">
         <div className="panel-header">
           <h3>📋 Recent Games</h3>
-          <span className="badge badge-blue">{totalGames} games</span>
+          <span className="badge badge-blue">{filteredGames.length} shown</span>
         </div>
-        {games.map((game) => (
+        <div className="dashboard-controls" style={{ padding: '10px 16px' }}>
+          {['all', 'win', 'draw', 'loss'].map((result) => (
+            <button
+              key={result}
+              type="button"
+              className={`dashboard-toggle ${resultFilter === result ? 'active' : ''}`}
+              onClick={() => setResultFilter(result)}
+            >
+              {result === 'all' ? 'All Results' : result.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        {filteredGames.map((game) => (
           <div key={game.id} className="game-item" onClick={() => onSelectGame(game)}>
             <div className="game-info">
               <span className="opponent">vs {game.opponent} ({game.opponentRating})</span>
@@ -190,4 +230,3 @@ function averageFromGames(games, selector) {
   const total = games.reduce((sum, game) => sum + selector(game), 0);
   return Math.round(total / games.length);
 }
-
