@@ -10,7 +10,7 @@
  * @returns {Object} { classification, text, tip }
  */
 export function generateCoachComment(move, context = {}) {
-  const { san, evalDrop, classification, phase, isPlayerMove, bestMove, playerMatchedBestMove, evalSwing } = move;
+  const { san, evalDrop, classification, phase, isPlayerMove, bestMove, playerMatchedBestMove, evalSwing, evalSource } = move;
 
   if (!isPlayerMove) {
     return {
@@ -21,6 +21,14 @@ export function generateCoachComment(move, context = {}) {
   }
 
   const evalContext = buildEvalContext(evalDrop, evalSwing);
+
+  if (evalSource === 'material') {
+    return {
+      classification: classification === 'book' ? 'good' : classification,
+      text: `<strong>${san}</strong> was reviewed with material fallback only, so this feedback is directional rather than exact.`,
+      tip: 'Re-run this game when engine access is stable to get precise move-by-move recommendations.',
+    };
+  }
 
   switch (classification) {
     case 'blunder':

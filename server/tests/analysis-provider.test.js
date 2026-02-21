@@ -90,3 +90,19 @@ test('analyzeGameWithEngine emits varied move classifications with engine best-m
   assert.equal(typeof playerMoves[0].beforeEval, 'number');
   assert.equal(typeof playerMoves[0].evalSwing, 'number');
 });
+
+
+test('analyzeGameWithEngine returns analysis quality metadata', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => {
+    throw new Error('network down');
+  };
+
+  const pgn = '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6';
+  const analysis = await analyzeGameWithEngine(pgn, 'white', 'web');
+  global.fetch = originalFetch;
+
+  assert.equal(analysis.quality.primarySource, 'material');
+  assert.equal(typeof analysis.quality.engineShare, 'number');
+  assert.equal(analysis.quality.needsRefinement, true);
+});

@@ -53,6 +53,7 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
       middlegame: avg(middlegameAccuracy),
       endgame: avg(endgameAccuracy),
     },
+    quality: summarizeAnalysisQuality(analyzedMoves),
   };
 }
 
@@ -104,6 +105,30 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
 }
 
 
+
+
+function summarizeAnalysisQuality(moves) {
+  const playerMoves = moves.filter((move) => move.isPlayerMove);
+  if (!playerMoves.length) {
+    return { primarySource: 'unknown', engineShare: 0, materialShare: 0, needsRefinement: true };
+  }
+
+  const materialMoves = playerMoves.filter((move) => move.evalSource === 'material').length;
+  const engineMoves = playerMoves.length - materialMoves;
+  const engineShare = Math.round((engineMoves / playerMoves.length) * 100);
+  const materialShare = 100 - engineShare;
+
+  let primarySource = 'engine';
+  if (engineMoves === 0) primarySource = 'material';
+  else if (materialMoves > 0) primarySource = 'mixed';
+
+  return {
+    primarySource,
+    engineShare,
+    materialShare,
+    needsRefinement: materialShare > 30,
+  };
+}
 
 function computeMoveScore(evalSource, evalDrop) {
   if (evalSource === 'material') {

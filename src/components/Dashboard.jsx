@@ -68,6 +68,9 @@ export default function Dashboard({
                 <span className="badge badge-amber" style={{ fontSize: 10 }}>
                   {item.analysis?.blunders || 0} blunders · {item.analysis?.accuracy || 0}%
                 </span>
+                <span className={`badge ${getAnalysisStatusBadgeClass(item.analysisStatus)}`} style={{ fontSize: 10 }}>
+                  {formatAnalysisStatus(item.analysisStatus)}
+                </span>
               </div>
               <div className="pattern-desc">{item.opening} · {item.platform} · {item.timeControl}</div>
             </div>
@@ -134,7 +137,7 @@ export default function Dashboard({
           <div key={game.id} className="game-item" onClick={() => onSelectGame(game)}>
             <div className="game-info">
               <span className="opponent">vs {game.opponent} ({game.opponentRating})</span>
-              <span className="game-meta">{game.opening} · {game.timeControl} · {game.platform} · Accuracy: {game.analysis?.accuracy || '?'}%</span>
+              <span className="game-meta">{game.opening} · {game.timeControl} · {game.platform} · Accuracy: {game.analysis?.accuracy || '?'}% · {formatAnalysisStatus(game.analysisStatus)}</span>
             </div>
             <span className={`game-result ${game.result === 'win' ? 'result-win' : game.result === 'loss' ? 'result-loss' : 'result-draw'}`}>
               {game.result.toUpperCase()}
@@ -225,4 +228,14 @@ function getReviewScore(game) {
   const mistakes = game.analysis?.mistakes || 0;
   const accuracyPenalty = Math.max(0, 80 - (game.analysis?.accuracy || 0));
   return blunders * 5 + mistakes * 2 + accuracyPenalty;
+}
+
+
+function formatAnalysisStatus(status) {
+  if (status === 'fallback-material') return 'Limited engine depth';
+  return 'Deep analyzed';
+}
+
+function getAnalysisStatusBadgeClass(status) {
+  return status === 'fallback-material' ? 'badge-amber' : 'badge-blue';
 }
