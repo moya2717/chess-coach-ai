@@ -81,14 +81,14 @@ async function handleGames(url, res) {
 
 async function handleAnalyze(req, res) {
   const body = await readJsonBody(req);
-  const { pgn, playerColor = 'white', cacheKey = '' } = body;
+  const { pgn, playerColor = 'white', cacheKey = '', engineMode = 'auto' } = body;
 
   if (!pgn) {
     return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'pgn is required', retryable: false });
   }
 
-  const key = `analysis:${cacheKey || pgn.slice(0, 64)}:${playerColor}`;
-  const analysis = await evalCache.getOrSet(key, () => analyzeGameWithEngine(pgn, playerColor));
+  const key = `analysis:${cacheKey || pgn.slice(0, 64)}:${playerColor}:${engineMode}`;
+  const analysis = await evalCache.getOrSet(key, () => analyzeGameWithEngine(pgn, playerColor, engineMode));
   return sendJson(res, 200, analysis);
 }
 

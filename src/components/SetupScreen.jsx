@@ -3,6 +3,17 @@ import { useState } from 'react';
 export default function SetupScreen({ onSubmit, error }) {
   const [chesscomUser, setChesscomUser] = useState('');
   const [lichessUser, setLichessUser] = useState('');
+  const [engineMode, setEngineMode] = useState('auto');
+  const [uploadedPgn, setUploadedPgn] = useState('');
+
+  const canAnalyze = Boolean(chesscomUser || lichessUser || uploadedPgn.trim());
+
+  const handlePgnUpload = async (event) => {
+    const [file] = event.target.files || [];
+    if (!file) return;
+    const rawText = await file.text();
+    setUploadedPgn(rawText);
+  };
 
   return (
     <div className="setup-screen">
@@ -41,10 +52,23 @@ export default function SetupScreen({ onSubmit, error }) {
           />
           <div className="hint">Leave blank if you only play on Chess.com</div>
         </div>
+        <div className="input-group">
+          <label>Upload PGN File (optional)</label>
+          <input type="file" accept=".pgn,text/plain" onChange={handlePgnUpload} />
+          <div className="hint">Upload your own PGNs to include custom games in pattern analysis.</div>
+        </div>
+        <div className="input-group">
+          <label>Analysis Engine</label>
+          <select value={engineMode} onChange={(e) => setEngineMode(e.target.value)}>
+            <option value="auto">Auto (web first, local/material fallback)</option>
+            <option value="web">Stockfish Web API</option>
+            <option value="local">Stockfish Local Binary</option>
+          </select>
+        </div>
         <button
           className="btn-primary"
-          disabled={!chesscomUser && !lichessUser}
-          onClick={() => onSubmit(chesscomUser, lichessUser)}
+          disabled={!canAnalyze}
+          onClick={() => onSubmit({ chesscomUser, lichessUser, uploadedPgn, engineMode })}
         >
           Analyze My Games →
         </button>
