@@ -26,7 +26,6 @@ const WINDOW_TO_DAYS = {
   lastWeek: 7,
   last30Days: 30,
 };
-const BACKGROUND_REFRESH_DELAY_MS = 600;
 
 function App() {
   // ─── State ───
@@ -44,6 +43,8 @@ function App() {
   const [authUser, setAuthUser] = useState(null);
   const [analysisRuns, setAnalysisRuns] = useState([]);
   const [analysisProgress, setAnalysisProgress] = useState({ active: false, completed: 0, total: 0 });
+  const [activeAnalysisGameId, setActiveAnalysisGameId] = useState(null);
+  const [preferredEngineMode, setPreferredEngineMode] = useState('auto');
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -87,6 +88,7 @@ function App() {
     timeWindow = 'last30Days',
   }) => {
     setScreen('loading');
+    setPreferredEngineMode(engineMode);
     setError(null);
     setUsernames({ chesscom: chesscomUser, lichess: lichessUser });
 
@@ -141,28 +143,14 @@ function App() {
       allGames.sort((a, b) => new Date(b.date) - new Date(a.date));
       allGames = allGames.slice(0, MAX_GAMES_PER_ANALYSIS);
 
-      // Step 4: Analyze each game with Stockfish (fast pass first)
+      // Step 4: Finish setup (analysis happens on-demand per game)
       setLoadingStep(4);
-      setAnalysisProgress({ active: true, completed: 0, total: allGames.length });
-      const initialMode = getInitialAnalysisMode(engineMode);
-      const estimatedSeconds = estimateTotalAnalysisSeconds(allGames.length, initialMode);
-      setLoadingMessage(`Running deep Stockfish analysis on ${allGames.length} games (~${estimatedSeconds}s estimated)...`);
-
-      await analyzeGamesSequentially({
-        games: allGames,
-        mode: initialMode,
-        onProgress: ({ index, total, opponent }) => {
-          const remaining = Math.max(0, total - index - 1);
-          const remainingSeconds = estimateTotalAnalysisSeconds(remaining, initialMode);
-          setLoadingMessage(`Analyzing game ${index + 1} of ${total} (vs ${opponent}) · ~${remainingSeconds}s remaining`);
-          setAnalysisProgress({ active: true, completed: index + 1, total });
-        },
-      });
+      setLoadingMessage(`Loaded ${allGames.length} games. Analyze each one as you review it.`);
 
       // Step 5: Detect patterns
       setLoadingStep(5);
-      setLoadingMessage('Detecting patterns in your play...');
-      const detectedPatterns = detectPatterns(allGames);
+      setLoadingMessage('Patterns unlock as you analyze games.');
+      const detectedPatterns = detectPatterns([]);
 
       // Step 6: Done!
       setLoadingStep(6);
@@ -171,9 +159,8 @@ function App() {
       await new Promise((r) => setTimeout(r, 600));
 
       const resolvedPatterns = detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns();
-      const shouldRefreshInBackground = shouldRunBackgroundRefresh(engineMode, initialMode, allGames);
       const authUserId = getAuthUserId(authUser);
-      if (authUserId && !shouldRefreshInBackground) {
+      if (authUserId) {
         recordAnalysisRun({
           userId: authUserId,
           usernames: { chesscom: chesscomUser, lichess: lichessUser },
@@ -187,21 +174,6 @@ function App() {
       await hydratePuzzleProgress(resolvedPatterns, { chesscom: chesscomUser, lichess: lichessUser });
       setScreen('dashboard');
       setActiveTab('dashboard');
-
-      if (shouldRefreshInBackground) {
-        setTimeout(() => {
-          refreshAnalysisInBackground({
-            games: allGames,
-            engineMode: resolveRefreshMode(engineMode, allGames),
-            authUser,
-            usernames: { chesscom: chesscomUser, lichess: lichessUser },
-            setGames,
-            setPatterns,
-            setAnalysisRuns,
-            setAnalysisProgress,
-          });
-        }, BACKGROUND_REFRESH_DELAY_MS);
-      }
     } catch (err) {
       console.error('Analysis pipeline error:', err);
       setError(`Something went wrong: ${err.message}. Please try again.`);
@@ -250,7 +222,7 @@ function App() {
 
     await refreshAnalysisInBackground({
       games,
-      engineMode: resolveRefreshMode('auto', games),
+      engineMode: resolveRefreshMode(preferredEngineMode, games),
       forceRefresh: true,
       authUser,
       usernames,
@@ -259,7 +231,44 @@ function App() {
       setAnalysisRuns,
       setAnalysisProgress,
     });
-  }, [analysisProgress.active, authUser, games, usernames]);
+  }, [analysisProgress.active, authUser, games, preferredEngineMode, usernames]);
+
+  const handleAnalyzeGame = useCallback(async (gameId) => {
+    if (analysisProgress.active || !gameId) {
+      return;
+    }
+
+    const target = games.find((game) => game.id === gameId);
+    if (!target?.pgn) {
+      return;
+    }
+
+    setActiveAnalysisGameId(gameId);
+    setAnalysisProgress({ active: true, completed: 0, total: 1 });
+    try {
+      const analysis = await analyzeGame(target.pgn, target.playerColor, preferredEngineMode, { forceRefresh: true });
+      const nextGames = games.map((game) => (
+        game.id === gameId
+          ? { ...game, analysis, analysisStatus: deriveAnalysisStatus(analysis) }
+          : game
+      ));
+      const resolvedPatterns = resolvePatterns(nextGames);
+      setGames(nextGames);
+      setPatterns(resolvedPatterns);
+
+      const authUserId = getAuthUserId(authUser);
+      if (authUserId) {
+        recordAnalysisRun({ userId: authUserId, usernames, games: nextGames, patterns: resolvedPatterns });
+        setAnalysisRuns(listAnalysisRuns(authUserId));
+      }
+    } catch (err) {
+      console.warn('Manual game analysis failed:', err.message);
+      setError(`Could not analyze this game right now: ${err.message}`);
+    } finally {
+      setActiveAnalysisGameId(null);
+      setAnalysisProgress({ active: false, completed: 1, total: 1 });
+    }
+  }, [analysisProgress.active, authUser, games, preferredEngineMode, usernames]);
 
   const showNav = authUser && screen !== 'setup' && screen !== 'loading';
   const requiresAuth = isAuthConfigured() && !authUser;
@@ -335,6 +344,8 @@ function App() {
             game={selectedGame}
             onBack={goToDashboard}
             onReanalyzeGames={handleReanalyzeGames}
+            onAnalyzeGame={handleAnalyzeGame}
+            activeAnalysisGameId={activeAnalysisGameId}
             analysisInProgress={analysisProgress.active}
           />
         )}
@@ -376,8 +387,8 @@ function getDefaultPatterns() {
       icon: '📊',
       severity: 'moderate',
       frequency: 0,
-      description: 'We need more analyzed games to detect meaningful patterns. Play a few more games and come back for a deeper analysis!',
-      coaching: 'The more games we analyze, the smarter your coaching becomes. Try to play at least 10 rated games this week.',
+      description: "Analyze games from the review screen to unlock pattern detection. We'll combine the lessons once enough games are reviewed.",
+      coaching: 'Start with your toughest losses first. After each manual analysis, your dashboard and training plan will update automatically.',
       puzzleTheme: 'short',
     },
   ];
@@ -442,43 +453,6 @@ function getDateFromWindow(window) {
   const date = new Date();
   date.setDate(date.getDate() - days);
   return date.toISOString().split('T')[0];
-}
-
-function estimateTotalAnalysisSeconds(gameCount, engineMode) {
-  const perGameSeconds = engineMode === 'local' ? 4 : 7;
-  return gameCount * perGameSeconds;
-}
-
-function getInitialAnalysisMode(engineMode) {
-  if (engineMode === 'auto') return 'local';
-  return engineMode;
-}
-
-function shouldRunBackgroundRefresh(engineMode, initialMode, games) {
-  if (engineMode === 'auto' && initialMode !== engineMode) return true;
-  return games.some((game) => deriveAnalysisStatus(game.analysis) === 'fallback-material');
-}
-
-async function analyzeGamesSequentially({ games, mode, onProgress = () => {}, forceRefresh = false }) {
-  for (let i = 0; i < games.length; i += 1) {
-    const game = games[i];
-    if (!game.pgn) {
-      game.analysis = createFallbackAnalysis(i);
-      game.analysisStatus = 'fallback-material';
-      onProgress({ index: i, total: games.length, opponent: game.opponent || 'Unknown' });
-      continue;
-    }
-
-    onProgress({ index: i, total: games.length, opponent: game.opponent || 'Unknown' });
-    try {
-      game.analysis = await analyzeGame(game.pgn, game.playerColor, mode, { forceRefresh });
-      game.analysisStatus = deriveAnalysisStatus(game.analysis);
-    } catch (err) {
-      console.warn(`Analysis failed for game ${i}:`, err.message);
-      game.analysis = createFallbackAnalysis(i);
-      game.analysisStatus = 'fallback-material';
-    }
-  }
 }
 
 async function refreshAnalysisInBackground({
