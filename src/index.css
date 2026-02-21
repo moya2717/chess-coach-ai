@@ -62,6 +62,34 @@ body {
   letter-spacing: 0.5px;
 }
 .header-brand h1 span { color: var(--accent-green); }
+
+.engine-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.engine-indicator .engine-light {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.engine-indicator.active {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+  background: var(--accent-green-dim);
+}
+.engine-indicator.active .engine-light {
+  background: var(--accent-green);
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.9);
+}
 .header-nav { display: flex; gap: 4px; }
 .header-nav button {
   background: none; border: none; color: var(--text-secondary);

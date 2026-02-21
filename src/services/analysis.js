@@ -18,7 +18,13 @@ export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto
     playerColor,
     cacheKey: buildAnalysisCacheKey({ pgn, headers: chess.header(), playerColor, engineMode }),
     engineMode,
-  });
+  }, { timeout: 120000 });
+}
+
+export function buildAnalysisCacheKey({ pgn, headers = {}, playerColor = 'white', engineMode = 'auto' }) {
+  const idSeed = headers.Site || headers.Link || headers.UTCDate || headers.Date || headers.Event || '';
+  const canonicalSeed = idSeed ? `${idSeed}:${playerColor}:${engineMode}` : `${playerColor}:${engineMode}`;
+  return `${canonicalSeed}:${hashString(pgn)}`;
 }
 
 export function buildAnalysisCacheKey({ pgn, headers = {}, playerColor = 'white', engineMode = 'auto' }) {
