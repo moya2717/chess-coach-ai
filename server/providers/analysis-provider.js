@@ -40,6 +40,20 @@ export async function buildEngineLineFromFen(fen, engineMode = 'auto', options =
   };
 }
 
+
+export async function analyzePositionWithContext(fen, engineMode = 'auto', options = {}) {
+  const lineResult = await buildEngineLineFromFen(fen, engineMode, options);
+  const candidates = await buildCandidateMovesFromFen(fen, engineMode, options);
+  return {
+    startFen: fen,
+    phase: inferPhaseFromFen(fen),
+    line: lineResult.line,
+    quality: lineResult.quality,
+    candidates,
+    assessment: evaluatePositionSnapshot(fen),
+  };
+}
+
 export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMode = 'auto', options = {}) {
   const chess = new Chess();
   chess.loadPgn(pgn);
@@ -327,10 +341,96 @@ function toSanFromUci(chess, uciMove) {
   const match = String(uciMove || '').match(/^([a-h][1-8])([a-h][1-8])([qrbn])?$/);
   if (!match) return null;
   const [, from, to, promotion] = match;
-  const move = chess.move({ from, to, promotion });
-  if (!move) return null;
-  chess.undo();
-  return move.san;
+  try {
+    const move = chess.move({ from, to, promotion });
+    if (!move) return null;
+    chess.undo();
+    return move.san;
+  } catch {
+    return null;
+  }
+}
+
+
+async function buildCandidateMovesFromFen(fen, engineMode, options = {}) {
+  const chess = new Chess(fen);
+  const legalMoves = chess.moves({ verbose: true });
+  const isWhiteToMove = fen.split(' ')[1] === 'w';
+
+  const scored = [];
+  for (const move of legalMoves.slice(0, 18)) {
+    chess.move(move);
+    const evaluation = await getStockfishEval(chess.fen(), 13, engineMode, options);
+    chess.undo();
+
+    scored.push({
+      uci: `${move.from}${move.to}${move.promotion || ''}`,
+      san: move.san,
+      eval: Number((evaluation.eval || 0).toFixed(2)),
+      source: evaluation.source || 'unknown',
+      concepts: inferMoveConcepts(move),
+      variation: await buildCandidateVariation(fen, move, engineMode, options),
+    });
+  }
+
+  scored.sort((a, b) => (isWhiteToMove ? b.eval - a.eval : a.eval - b.eval));
+  return scored.slice(0, 5);
+}
+
+async function buildCandidateVariation(fen, move, engineMode, options = {}) {
+  const chess = new Chess(fen);
+  chess.move(move);
+  const responseLine = await buildEngineLineFromFen(chess.fen(), engineMode, {
+    ...options,
+    maxPlies: 2,
+  });
+  return responseLine.line.map((step) => step.san);
+}
+
+function inferMoveConcepts(move) {
+  const concepts = [];
+  if (move.san.includes('x')) concepts.push('capture / sacrifice tension');
+  if (move.san.includes('+') || move.san.includes('#')) concepts.push('forcing check sequence');
+  if (move.piece === 'n' && (move.san.includes('+') || move.san.includes('x'))) concepts.push('possible fork motif');
+  if (move.piece === 'b' || move.piece === 'r' || move.piece === 'q') concepts.push('pin / skewer pressure');
+  if (['a3', 'h3', 'a6', 'h6', 'Kh1', 'Kh8'].includes(move.san)) concepts.push('prophylaxis');
+  return concepts.slice(0, 2);
+}
+
+function inferPhaseFromFen(fen) {
+  const board = fen.split(' ')[0];
+  const nonPawnPieces = (board.match(/[nbrqNBRQ]/g) || []).length;
+  if (nonPawnPieces >= 12) return 'opening';
+  if (nonPawnPieces >= 6) return 'middlegame';
+  return 'endgame';
+}
+
+function evaluatePositionSnapshot(fen) {
+  const board = fen.split(' ')[0];
+  const whiteMaterial = materialForSide(board, true);
+  const blackMaterial = materialForSide(board, false);
+  const sideToMove = fen.split(' ')[1] === 'w' ? 'white' : 'black';
+  const materialEdge = Number((whiteMaterial - blackMaterial).toFixed(1));
+
+  return {
+    sideToMove,
+    materialEdge,
+    strengths: materialEdge >= 0 ? ['material parity or edge', 'initiative potential'] : ['counterplay chances'],
+    weaknesses: materialEdge < 0 ? ['material deficit', 'must avoid trades'] : ['watch king safety and loose pieces'],
+    threats: ['checks, captures, and tactical motifs (forks/pins/skewers)'],
+    opportunities: ['improve worst piece', 'consider prophylaxis against opponent threats'],
+  };
+}
+
+function materialForSide(board, whiteSide) {
+  const values = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  return board.split('').reduce((sum, piece) => {
+    const lower = piece.toLowerCase();
+    if (!(lower in values)) return sum;
+    const isWhite = piece === piece.toUpperCase();
+    if (isWhite !== whiteSide) return sum;
+    return sum + values[lower];
+  }, 0);
 }
 
 function avg(numbers) {

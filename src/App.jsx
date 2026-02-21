@@ -233,6 +233,23 @@ function App() {
     });
   }, [analysisProgress.active, authUser, games, preferredEngineMode, usernames]);
 
+  const persistAnalyzedGame = useCallback((gameId, analysis) => {
+    const nextGames = games.map((game) => (
+      game.id === gameId
+        ? { ...game, analysis, analysisStatus: deriveAnalysisStatus(analysis) }
+        : game
+    ));
+    const resolvedPatterns = resolvePatterns(nextGames);
+    setGames(nextGames);
+    setPatterns(resolvedPatterns);
+
+    const authUserId = getAuthUserId(authUser);
+    if (authUserId) {
+      recordAnalysisRun({ userId: authUserId, usernames, games: nextGames, patterns: resolvedPatterns });
+      setAnalysisRuns(listAnalysisRuns(authUserId));
+    }
+  }, [authUser, games, usernames]);
+
   const handleAnalyzeGame = useCallback(async (gameId) => {
     if (analysisProgress.active || !gameId) {
       return;
@@ -243,32 +260,25 @@ function App() {
       return;
     }
 
+    setError(null);
     setActiveAnalysisGameId(gameId);
     setAnalysisProgress({ active: true, completed: 0, total: 1 });
     try {
-      const analysis = await analyzeGame(target.pgn, target.playerColor, preferredEngineMode, { forceRefresh: true });
-      const nextGames = games.map((game) => (
-        game.id === gameId
-          ? { ...game, analysis, analysisStatus: deriveAnalysisStatus(analysis) }
-          : game
-      ));
-      const resolvedPatterns = resolvePatterns(nextGames);
-      setGames(nextGames);
-      setPatterns(resolvedPatterns);
-
-      const authUserId = getAuthUserId(authUser);
-      if (authUserId) {
-        recordAnalysisRun({ userId: authUserId, usernames, games: nextGames, patterns: resolvedPatterns });
-        setAnalysisRuns(listAnalysisRuns(authUserId));
-      }
+      const result = await analyzeGame(target.pgn, target.playerColor, preferredEngineMode, { forceRefresh: true });
+      const analysis = hasAnalyzedMoves(result)
+        ? result
+        : buildMaterialFallbackAnalysisFromPgn(target.pgn, target.playerColor);
+      persistAnalyzedGame(gameId, analysis);
     } catch (err) {
       console.warn('Manual game analysis failed:', err.message);
-      setError(`Could not analyze this game right now: ${err.message}`);
+      const fallbackAnalysis = buildMaterialFallbackAnalysisFromPgn(target.pgn, target.playerColor);
+      persistAnalyzedGame(gameId, fallbackAnalysis);
+      setError(`Engine unavailable right now. Loaded material-based move review for this game.`);
     } finally {
       setActiveAnalysisGameId(null);
       setAnalysisProgress({ active: false, completed: 1, total: 1 });
     }
-  }, [analysisProgress.active, authUser, games, preferredEngineMode, usernames]);
+  }, [analysisProgress.active, games, persistAnalyzedGame, preferredEngineMode]);
 
   const showNav = authUser && screen !== 'setup' && screen !== 'loading';
   const requiresAuth = isAuthConfigured() && !authUser;
@@ -378,6 +388,125 @@ function createFallbackAnalysis(seed = 0) {
       endgame: 42 + (basis % 12),
     },
   };
+}
+
+
+function hasAnalyzedMoves(analysis) {
+  return Array.isArray(analysis?.moves) && analysis.moves.length > 0;
+}
+
+function buildMaterialFallbackAnalysisFromPgn(pgn, playerColor = 'white') {
+  const chess = new Chess();
+  try {
+    chess.loadPgn(pgn, { strict: false });
+  } catch {
+    return createFallbackAnalysis(0);
+  }
+
+  const history = chess.history({ verbose: true });
+  chess.reset();
+  const moves = [];
+  const phaseBuckets = { opening: [], middlegame: [], endgame: [] };
+  let blunders = 0;
+  let mistakes = 0;
+  let inaccuracies = 0;
+
+  history.forEach((move, index) => {
+    const beforeEval = estimateMaterialEval(chess.fen());
+    const fenBefore = chess.fen();
+    chess.move(move.san);
+    const afterEval = estimateMaterialEval(chess.fen());
+    const isWhiteMove = index % 2 === 0;
+    const isPlayerMove = (isWhiteMove && playerColor === 'white') || (!isWhiteMove && playerColor === 'black');
+    const evalDrop = computeMaterialEvalDrop({ isPlayerMove, isWhiteMove, beforeEval, afterEval });
+    const classification = classifyMaterialMove(evalDrop, isPlayerMove);
+
+    if (classification === 'blunder') blunders += 1;
+    if (classification === 'mistake') mistakes += 1;
+    if (classification === 'inaccuracy') inaccuracies += 1;
+
+    const phase = resolveMovePhase(index, history.length);
+    const moveScore = Math.max(45, Math.round(72 - evalDrop * 15));
+    phaseBuckets[phase].push(moveScore);
+
+    moves.push({
+      num: Math.floor(index / 2) + 1,
+      san: move.san,
+      isWhite: isWhiteMove,
+      fenBefore,
+      fenAfter: chess.fen(),
+      eval: Number(afterEval.toFixed(2)),
+      beforeEval: Number(beforeEval.toFixed(2)),
+      evalSwing: Number((afterEval - beforeEval).toFixed(2)),
+      evalDrop,
+      classification,
+      phase,
+      isPlayerMove,
+      from: move.from,
+      to: move.to,
+      evalSource: 'material',
+      bestMove: null,
+      playerMatchedBestMove: false,
+      moveScore,
+      afterEvaluation: { eval: Number(afterEval.toFixed(2)), source: 'material' },
+    });
+  });
+
+  return {
+    moves,
+    accuracy: calculateFallbackAccuracy(moves),
+    blunders,
+    mistakes,
+    inaccuracies,
+    phases: {
+      opening: averageBucket(phaseBuckets.opening),
+      middlegame: averageBucket(phaseBuckets.middlegame),
+      endgame: averageBucket(phaseBuckets.endgame),
+    },
+    quality: { primarySource: 'material', engineShare: 0, materialShare: 100, needsRefinement: true },
+  };
+}
+
+function calculateFallbackAccuracy(moves) {
+  const playerMoves = moves.filter((move) => move.isPlayerMove);
+  if (!playerMoves.length) return 0;
+  const totalScore = playerMoves.reduce((sum, move) => sum + (move.moveScore || 0), 0);
+  return Math.round(totalScore / playerMoves.length);
+}
+
+function averageBucket(values) {
+  if (!values.length) return 0;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function resolveMovePhase(index, totalMoves) {
+  const progress = index / Math.max(totalMoves, 1);
+  if (progress < 0.25) return 'opening';
+  if (progress < 0.7) return 'middlegame';
+  return 'endgame';
+}
+
+function classifyMaterialMove(evalDrop, isPlayerMove) {
+  if (!isPlayerMove) return 'book';
+  if (evalDrop > 2) return 'blunder';
+  if (evalDrop > 1) return 'mistake';
+  if (evalDrop > 0.45) return 'inaccuracy';
+  if (evalDrop <= 0.08) return 'good';
+  return 'inaccuracy';
+}
+
+function computeMaterialEvalDrop({ isPlayerMove, isWhiteMove, beforeEval, afterEval }) {
+  if (!isPlayerMove) return 0;
+  return isWhiteMove ? Math.max(0, beforeEval - afterEval) : Math.max(0, afterEval - beforeEval);
+}
+
+function estimateMaterialEval(fen) {
+  const pieces = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  return fen.split(' ')[0].split('').reduce((score, piece) => {
+    const symbol = piece.toLowerCase();
+    if (!(symbol in pieces)) return score;
+    return piece === piece.toUpperCase() ? score + pieces[symbol] : score - pieces[symbol];
+  }, 0);
 }
 
 function getDefaultPatterns() {

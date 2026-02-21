@@ -181,3 +181,27 @@ export function generateGameSummary(analysis, playerColor, opening) {
 
   return summaryParts.join(' ');
 }
+
+
+export function answerFollowUpQuestion(question, context = {}) {
+  const q = String(question || '').trim().toLowerCase();
+  if (!q) return 'Ask about move quality, candidate moves, tactical ideas, or why one line is better.';
+
+  const { currentMove, candidates = [], assessment, phase = 'middlegame' } = context;
+  if (q.includes('last move good') || q.includes('was my move good')) {
+    if (!currentMove) return 'You are at the start position, so there is no last move to evaluate yet.';
+    return `Your move ${currentMove.san} is classified as ${currentMove.classification}. Eval swing: ${Number(currentMove.evalSwing || 0).toFixed(2)}. In ${phase}, compare checks/captures/threats before committing.`;
+  }
+
+  if (q.includes('why') && candidates.length) {
+    const best = candidates[0];
+    return `Top candidate is ${best.san} (eval ${best.eval}). It improves your position by forcing concrete responses. Check motifs: forks, pins, skewers, and prophylaxis against opponent threats.`;
+  }
+
+  if (q.includes('threat') && assessment) {
+    return `Current threats to calculate first: ${assessment.threats.join(', ')}. Opportunities: ${assessment.opportunities.join(', ')}.`;
+  }
+
+  return 'Coach tip: list 3 candidate moves, calculate opponent responses for each, then choose the move that best improves king safety, piece activity, and tactical control.';
+}
+
