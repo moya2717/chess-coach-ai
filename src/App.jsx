@@ -57,6 +57,18 @@ function App() {
     return unsubscribe;
   }, []);
 
+
+  useEffect(() => {
+    if (!selectedGame) {
+      return;
+    }
+
+    const refreshedGame = games.find((game) => game.id === selectedGame.id);
+    if (refreshedGame && refreshedGame !== selectedGame) {
+      setSelectedGame(refreshedGame);
+    }
+  }, [games, selectedGame]);
+
   const hydratePuzzleProgress = useCallback(async (detectedPatterns, nextUsernames) => {
     const userKey = nextUsernames.lichess || nextUsernames.chesscom || 'guest';
     const entries = await Promise.all(detectedPatterns.map(async (entry) => {
