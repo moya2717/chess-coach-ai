@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildFallbackPuzzle,
+  buildPersonalizedPuzzlePlan,
   getPuzzleProgress,
   normalizePuzzlePayload,
   recordPuzzleAttempt,
@@ -49,3 +51,43 @@ function fixturePuzzle() {
     },
   };
 }
+
+
+test('buildPersonalizedPuzzlePlan ranks themes from analyzed games and patterns', () => {
+  const plan = buildPersonalizedPuzzlePlan({
+    games: [
+      {
+        analysis: {
+          blunders: 3,
+          inaccuracies: 4,
+          phases: { opening: 52, endgame: 40 },
+        },
+      },
+      {
+        analysis: {
+          blunders: 1,
+          inaccuracies: 2,
+          phases: { opening: 63, endgame: 50 },
+        },
+      },
+    ],
+    patterns: [
+      { puzzleTheme: 'endgame', severity: 'critical', frequency: 70, name: 'Weak Endgame Technique' },
+      { puzzleTheme: 'opening', severity: 'moderate', frequency: 50, description: 'Opening preparation issues' },
+    ],
+  });
+
+  assert.equal(plan.recommendedTheme, 'endgame');
+  assert.equal(plan.targetPuzzleCount, 6);
+  assert.equal(plan.rankedThemes[0].theme, 'endgame');
+  assert.ok(plan.rankedThemes[0].score > plan.rankedThemes[1].score);
+});
+
+
+test('buildFallbackPuzzle returns deterministic local puzzle for unavailable upstream', () => {
+  const fallback = buildFallbackPuzzle('endgame');
+  assert.equal(fallback.id, 'fallback-endgame');
+  assert.equal(fallback.toMove, 'white');
+  assert.deepEqual(fallback.solution, ['d3d4']);
+  assert.equal(fallback.isFallback, true);
+});

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
-import { getPuzzle, getPuzzleProgress } from '../services/puzzles';
+import { getPuzzle, getPuzzlePlan, getPuzzleProgress } from '../services/puzzles';
 
-export default function PuzzleTrainer({ pattern, patterns, onBack, usernames, onPuzzleProgressUpdate }) {
+export default function PuzzleTrainer({ pattern, patterns, games = [], onBack, usernames, onPuzzleProgressUpdate }) {
   const currentPattern = pattern || (patterns && patterns[0]) || defaultPattern;
   const patternTheme = currentPattern.puzzleTheme || 'short';
   const userKey = usernames?.lichess || usernames?.chesscom || 'guest';
@@ -17,11 +17,13 @@ export default function PuzzleTrainer({ pattern, patterns, onBack, usernames, on
   const [timeSpent, setTimeSpent] = useState(0);
   const [startedAt, setStartedAt] = useState(Date.now());
   const [progress, setProgress] = useState(null);
+  const [puzzlePlan, setPuzzlePlan] = useState(null);
 
   useEffect(() => {
     loadPuzzle(patternTheme);
     loadProgress(userKey, patternTheme);
-  }, [patternTheme, userKey]);
+    loadPuzzlePlan(games, patterns);
+  }, [patternTheme, userKey, games, patterns]);
 
   useEffect(() => {
     if (solved) return;
@@ -43,6 +45,12 @@ export default function PuzzleTrainer({ pattern, patterns, onBack, usernames, on
     setRevealed(false);
     setStartedAt(Date.now());
     setTimeSpent(0);
+  }
+
+
+  async function loadPuzzlePlan(nextGames, nextPatterns) {
+    const plan = await getPuzzlePlan(nextGames, nextPatterns);
+    setPuzzlePlan(plan);
   }
 
   async function loadProgress(nextUserKey, nextTheme) {
@@ -152,6 +160,11 @@ export default function PuzzleTrainer({ pattern, patterns, onBack, usernames, on
             <div style={{ padding: 20 }}>
               <h3>Attempt</h3>
               <p style={{ marginTop: 8 }}>{feedback || 'Find the best move and drag the piece.'}</p>
+              {puzzlePlan && (
+                <p style={{ marginTop: 8, color: 'var(--text-secondary)' }}>
+                  Personalized focus: <strong>{puzzlePlan.recommendedTheme}</strong> · target {puzzlePlan.targetPuzzleCount} puzzles
+                </p>
+              )}
               <p>Tries: {tries} · Time: {timeSpent}s · Solved: {solved ? 'Yes' : 'No'}</p>
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <button className="btn-secondary" onClick={() => loadPuzzle(patternTheme)}>Next Puzzle</button>

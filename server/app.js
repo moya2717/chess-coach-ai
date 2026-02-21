@@ -6,6 +6,8 @@ import { fetchLichessRecentGames, fetchLichessPuzzles, fetchLichessProfile } fro
 import { analyzeGameWithEngine } from './providers/analysis-provider.js';
 import {
   getPuzzleProgress,
+  buildFallbackPuzzle,
+  buildPersonalizedPuzzlePlan,
   normalizePuzzlePayload,
   recordPuzzleAttempt,
   resolvePuzzleTheme,
@@ -25,6 +27,7 @@ export function createHandler() {
       if (req.method === 'GET' && url.pathname === '/api/puzzle') return handlePuzzle(url, res);
       if (req.method === 'GET' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgress(url, res);
       if (req.method === 'POST' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgressUpdate(req, res);
+      if (req.method === 'POST' && url.pathname === '/api/puzzle-plan') return handlePuzzlePlan(req, res);
       return sendJson(res, 404, { code: 'NOT_FOUND', message: 'Route not found', retryable: false });
     } catch (error) {
       const normalized = normalizeUnknownError(error);
@@ -94,8 +97,22 @@ async function handleAnalyze(req, res) {
 
 async function handlePuzzle(url, res) {
   const mappedTheme = resolvePuzzleTheme(url.searchParams.get('theme') || 'short');
-  const [payload] = await fetchLichessPuzzles(mappedTheme, 1);
-  return sendJson(res, 200, normalizePuzzlePayload(payload));
+  try {
+    const [payload] = await fetchLichessPuzzles(mappedTheme, 1);
+    if (!payload) return sendJson(res, 200, buildFallbackPuzzle(mappedTheme));
+    return sendJson(res, 200, normalizePuzzlePayload(payload));
+  } catch {
+    return sendJson(res, 200, buildFallbackPuzzle(mappedTheme));
+  }
+}
+
+
+async function handlePuzzlePlan(req, res) {
+  const body = await readJsonBody(req);
+  const games = Array.isArray(body.games) ? body.games : [];
+  const patterns = Array.isArray(body.patterns) ? body.patterns : [];
+  const plan = buildPersonalizedPuzzlePlan({ games, patterns });
+  return sendJson(res, 200, plan);
 }
 
 function handlePuzzleProgress(url, res) {
