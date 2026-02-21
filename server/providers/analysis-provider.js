@@ -1,6 +1,9 @@
 import { Chess } from 'chess.js';
 import { requestWithRetry } from '../lib/http-client.js';
 
+const ENGINE_COOLDOWN_MS = 2 * 60_000;
+let engineUnavailableUntil = 0;
+
 export async function analyzeGameWithEngine(pgn, playerColor = 'white') {
   const chess = new Chess();
   chess.loadPgn(pgn);
@@ -56,7 +59,7 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
   const evaluation = await getStockfishEval(fenAfter);
   const isPlayerMove = (index % 2 === 0 && playerColor === 'white') || (index % 2 === 1 && playerColor === 'black');
   const currentEval = evaluation?.eval || 0;
-  const evalDrop = isPlayerMove ? Math.max(0, prevEval - currentEval) : 0;
+  const evalDrop = getEvalDrop({ isPlayerMove, playerColor, prevEval, currentEval });
 
   return {
     num: Math.floor(index / 2) + 1,
@@ -74,12 +77,24 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
   };
 }
 
+function getEvalDrop({ isPlayerMove, playerColor, prevEval, currentEval }) {
+  if (!isPlayerMove) return 0;
+  if (playerColor === 'black') {
+    return Math.max(0, currentEval - prevEval);
+  }
+  return Math.max(0, prevEval - currentEval);
+}
+
 async function getStockfishEval(fen, depth = 14) {
+  if (!isEngineAvailable()) {
+    return { eval: estimateMaterialEval(fen), source: 'material' };
+  }
+
   try {
     const data = await requestWithRetry('https://chess-api.com/v1', {
       params: { fen, depth },
-      timeoutMs: 10_000,
-      retries: 1,
+      timeoutMs: 2_500,
+      retries: 0,
     });
 
     return {
@@ -87,10 +102,20 @@ async function getStockfishEval(fen, depth = 14) {
       bestMove: data.move || null,
       depth: data.depth || depth,
       mate: data.mate || null,
+      source: 'engine',
     };
   } catch {
-    return { eval: estimateMaterialEval(fen) };
+    markEngineUnavailable();
+    return { eval: estimateMaterialEval(fen), source: 'material' };
   }
+}
+
+function isEngineAvailable() {
+  return Date.now() >= engineUnavailableUntil;
+}
+
+function markEngineUnavailable() {
+  engineUnavailableUntil = Date.now() + ENGINE_COOLDOWN_MS;
 }
 
 function classifyMove(evalDrop) {

@@ -19,7 +19,8 @@ export async function fetchChesscomStats(username) {
 }
 
 export async function fetchChesscomRecentGames(username, count = 20) {
-  const archives = await fetchArchives(username);
+  const normalizedUsername = normalizeUsername(username);
+  const archives = await fetchArchives(normalizedUsername);
   if (!archives.length) return [];
 
   const allGames = [];
@@ -31,8 +32,13 @@ export async function fetchChesscomRecentGames(username, count = 20) {
   return allGames
     .slice(-count)
     .reverse()
-    .map((game, index) => processChessComGame(game, username, index))
+    .filter((game) => isGameForUser(game, normalizedUsername))
+    .map((game, index) => processChessComGame(game, normalizedUsername, index))
     .filter((game) => !isCoachGame(game));
+}
+
+function normalizeUsername(username) {
+  return (username || '').trim().replace(/^@/, '').toLowerCase();
 }
 
 async function fetchArchives(username) {
@@ -53,7 +59,8 @@ async function fetchArchives(username) {
 }
 
 function processChessComGame(rawGame, username, index) {
-  const isWhite = rawGame.white?.username?.toLowerCase() === username.toLowerCase();
+  const whiteName = normalizeUsername(rawGame.white?.username);
+  const isWhite = whiteName === username;
   const playerColor = isWhite ? 'white' : 'black';
   const opponent = isWhite ? rawGame.black : rawGame.white;
   const player = isWhite ? rawGame.white : rawGame.black;
@@ -78,10 +85,15 @@ function processChessComGame(rawGame, username, index) {
   };
 }
 
+function isGameForUser(rawGame, username) {
+  const whiteName = normalizeUsername(rawGame.white?.username);
+  const blackName = normalizeUsername(rawGame.black?.username);
+  return whiteName === username || blackName === username;
+}
 
 function isCoachGame(game) {
   const opponentName = (game?.opponent || '').toLowerCase();
-  return opponentName.includes('coach');
+  return /coach|bot/.test(opponentName);
 }
 
 function resolveResult(player, opponent) {
