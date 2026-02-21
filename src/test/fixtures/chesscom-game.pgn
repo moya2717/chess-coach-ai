@@ -1,0 +1,10 @@
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2024.01.15"]
+[White "CoachPlayer"]
+[Black "Opponent123"]
+[Result "1-0"]
+[ECO "C20"]
+[ECOUrl "https://www.chess.com/openings/Kings-Pawn-Game"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d4 exd4 6. cxd4 Bb4+ 7. Nc3 Nxe4 8. O-O Bxc3 9. bxc3 d5 10. Ba3 dxc4 1-0

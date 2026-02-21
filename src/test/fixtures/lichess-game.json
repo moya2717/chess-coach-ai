@@ -1,0 +1,28 @@
+{
+  "id": "Zyx987Qw",
+  "createdAt": 1705320000000,
+  "winner": "black",
+  "pgn": "[Event \"Rated Blitz game\"]\n[Site \"https://lichess.org/Zyx987Qw\"]\n[Date \"2024.01.15\"]\n[White \"CoachPlayer\"]\n[Black \"SharpTactics\"]\n[Result \"0-1\"]\n[ECO \"B01\"]\n[Opening \"Scandinavian Defense\"]\n\n1. e4 d5 2. exd5 Qxd5 3. Nc3 Qa5 4. d4 Nf6 5. Nf3 c6 0-1",
+  "clock": {
+    "initial": 300,
+    "increment": 3
+  },
+  "opening": {
+    "eco": "B01",
+    "name": "Scandinavian Defense"
+  },
+  "players": {
+    "white": {
+      "user": { "name": "CoachPlayer" },
+      "rating": 1760
+    },
+    "black": {
+      "user": { "name": "SharpTactics" },
+      "rating": 1811
+    }
+  },
+  "analysis": [
+    { "eval": 20 },
+    { "eval": -80 }
+  ]
+}

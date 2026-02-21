@@ -73,7 +73,7 @@ function parseNdjson(text) {
     .filter(Boolean);
 }
 
-function processLichessGame(rawGame, username, index) {
+export function processLichessGame(rawGame, username, index) {
   const isWhite = rawGame.players?.white?.user?.name?.toLowerCase() === username.toLowerCase();
   const playerColor = isWhite ? 'white' : 'black';
   const opponent = isWhite ? rawGame.players?.black : rawGame.players?.white;
