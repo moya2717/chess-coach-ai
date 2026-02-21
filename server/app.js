@@ -90,9 +90,15 @@ async function handleAnalyze(req, res) {
     return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'pgn is required', retryable: false });
   }
 
-  const key = `analysis:${cacheKey || pgn.slice(0, 64)}:${playerColor}:${engineMode}`;
+  const key = createAnalysisCacheKey({ pgn, playerColor, engineMode, cacheKey });
   const analysis = await evalCache.getOrSet(key, () => analyzeGameWithEngine(pgn, playerColor, engineMode));
   return sendJson(res, 200, analysis);
+}
+
+export function createAnalysisCacheKey({ pgn, playerColor = 'white', engineMode = 'auto', cacheKey = '' }) {
+  const pgnHash = hashString(pgn);
+  const safeCacheKey = cacheKey || pgn.slice(0, 64);
+  return `analysis:${safeCacheKey}:${playerColor}:${engineMode}:${pgnHash}`;
 }
 
 async function handlePuzzle(url, res) {
@@ -139,6 +145,15 @@ function filterByDate(games, dateFrom, dateTo) {
     if (dateTo && game.date > dateTo) return false;
     return true;
   });
+}
+
+function hashString(value = '') {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
 }
 
 function sendJson(res, status, payload) {
