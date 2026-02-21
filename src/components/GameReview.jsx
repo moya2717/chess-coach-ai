@@ -177,10 +177,23 @@ export default function GameReview({ game, onBack }) {
             </span>
             {currentMove && (
               <span style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}>
-                {currentMove.san}
+                {currentMove.san} · Δ {formatEvalDelta(currentMove.evalSwing)} · {formatEvalSource(currentMove.evalSource)}
               </span>
             )}
           </div>
+
+          {game.analysisStatus === 'fallback-material' && (
+            <div style={{
+              marginTop: 10,
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--accent-amber-dim)',
+              color: 'var(--accent-amber)',
+              fontSize: 12,
+            }}>
+              ⚠️ This game used limited engine depth for parts of analysis. Re-run analysis for stronger move-by-move feedback.
+            </div>
+          )}
 
           {/* Coach bubble */}
           <div className="coach-bubble">
@@ -251,4 +264,17 @@ export default function GameReview({ game, onBack }) {
       </div>
     </div>
   );
+}
+
+
+function formatEvalDelta(value) {
+  const rounded = Number(value || 0).toFixed(1);
+  return rounded.startsWith('-') ? rounded : `+${rounded}`;
+}
+
+function formatEvalSource(source) {
+  if (source === 'engine-local') return 'local engine';
+  if (source === 'engine-web') return 'web engine';
+  if (source === 'material') return 'material fallback';
+  return 'unknown source';
 }
