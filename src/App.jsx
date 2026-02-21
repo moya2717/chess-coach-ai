@@ -1,11 +1,3 @@
-// ═══════════════════════════════════════════
-// App.jsx — Main Application Controller
-// ═══════════════════════════════════════════
-// Think of this as the "project manager" that coordinates
-// all the different departments (API services, components,
-// analysis engine, coach voice).
-// ═══════════════════════════════════════════
-
 import { useState, useCallback } from 'react';
 import SetupScreen from './components/SetupScreen';
 import LoadingScreen from './components/LoadingScreen';
@@ -14,10 +6,13 @@ import GameReview from './components/GameReview';
 import PuzzleTrainer from './components/PuzzleTrainer';
 import { getRecentGames as getChesscomGames } from './services/chesscom-api';
 import { getRecentGames as getLichessGames } from './services/lichess-api';
-import { analyzeGame, detectPatterns } from './services/analysis';
+import { detectPatterns } from './services/analysis';
+import { createAnalysisJob, getAnalysisJob } from './services/analysis-jobs-api';
+
+const DEEP_ANALYSIS_LIMIT = 5;
+const POLL_INTERVAL_MS = 1200;
 
 function App() {
-  // ─── State ───
   const [screen, setScreen] = useState('setup');
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -29,95 +24,35 @@ function App() {
   const [error, setError] = useState(null);
   const [usernames, setUsernames] = useState({ chesscom: '', lichess: '' });
 
-  // ─── Fetch and Analyze Games ───
   const startAnalysis = useCallback(async (chesscomUser, lichessUser) => {
     setScreen('loading');
     setError(null);
     setUsernames({ chesscom: chesscomUser, lichess: lichessUser });
 
     try {
-      let allGames = [];
-
-      // Step 1: Fetch from Chess.com
-      if (chesscomUser) {
-        setLoadingStep(0);
-        setLoadingMessage(`Connecting to Chess.com as "${chesscomUser}"...`);
-        try {
-          const chesscomGames = await getChesscomGames(chesscomUser, 15);
-          allGames.push(...chesscomGames);
-          setLoadingStep(1);
-        } catch (err) {
-          console.warn('Chess.com fetch failed:', err.message);
-          setLoadingStep(1);
-        }
-      } else {
-        setLoadingStep(1);
-      }
-
-      // Step 2: Fetch from Lichess
-      if (lichessUser) {
-        setLoadingStep(2);
-        setLoadingMessage(`Connecting to Lichess as "${lichessUser}"...`);
-        try {
-          const lichessGames = await getLichessGames(lichessUser, 15);
-          allGames.push(...lichessGames);
-          setLoadingStep(3);
-        } catch (err) {
-          console.warn('Lichess fetch failed:', err.message);
-          setLoadingStep(3);
-        }
-      } else {
-        setLoadingStep(3);
-      }
-
+      const allGames = await fetchGames(chesscomUser, lichessUser, setLoadingStep, setLoadingMessage);
       if (allGames.length === 0) {
         setError('No games found. Please check your username(s) and try again.');
         setScreen('setup');
         return;
       }
 
-      // Step 3: Sort by date (most recent first)
       allGames.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-      // Step 4: Analyze each game with Stockfish
       setLoadingStep(4);
-      setLoadingMessage('Running Stockfish analysis on your games...');
+      await analyzeGamesWithJobs(allGames, setLoadingMessage);
 
-      // Analyze the first few games deeply (the rest get quick analysis)
-      const deepAnalysisCount = Math.min(5, allGames.length);
-      for (let i = 0; i < allGames.length; i++) {
-        const game = allGames[i];
-        if (game.pgn && i < deepAnalysisCount) {
-          setLoadingMessage(`Analyzing game ${i + 1} of ${deepAnalysisCount} (vs ${game.opponent})...`);
-          try {
-            game.analysis = await analyzeGame(game.pgn, game.playerColor);
-          } catch (err) {
-            console.warn(`Analysis failed for game ${i}:`, err.message);
-            game.analysis = createFallbackAnalysis();
-          }
-        } else if (!game.analysis) {
-          // Quick fallback analysis for remaining games
-          game.analysis = createFallbackAnalysis();
-        }
-      }
-
-      // Step 5: Detect patterns
       setLoadingStep(5);
       setLoadingMessage('Detecting patterns in your play...');
       const detectedPatterns = detectPatterns(allGames);
 
-      // Step 6: Done!
       setLoadingStep(6);
       setLoadingMessage('Your coaching report is ready!');
-
-      // Short pause so user sees the final step
-      await new Promise(r => setTimeout(r, 600));
+      await wait(600);
 
       setGames(allGames);
       setPatterns(detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns());
       setScreen('dashboard');
       setActiveTab('dashboard');
-
     } catch (err) {
       console.error('Analysis pipeline error:', err);
       setError(`Something went wrong: ${err.message}. Please try again.`);
@@ -125,7 +60,6 @@ function App() {
     }
   }, []);
 
-  // ─── Navigation ───
   const handleSelectGame = (game) => {
     setSelectedGame(game);
     setScreen('review');
@@ -147,7 +81,6 @@ function App() {
 
   return (
     <>
-      {/* Header */}
       <header className="header">
         <div className="header-brand">
           <div className="logo">♞</div>
@@ -155,10 +88,7 @@ function App() {
         </div>
         {showNav && (
           <nav className="header-nav">
-            <button
-              className={activeTab === 'dashboard' ? 'active' : ''}
-              onClick={goToDashboard}
-            >
+            <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={goToDashboard}>
               Dashboard
             </button>
             <button
@@ -171,14 +101,9 @@ function App() {
         )}
       </header>
 
-      {/* Main Content */}
       <div className="app-container">
-        {screen === 'setup' && (
-          <SetupScreen onSubmit={startAnalysis} error={error} />
-        )}
-        {screen === 'loading' && (
-          <LoadingScreen step={loadingStep} message={loadingMessage} />
-        )}
+        {screen === 'setup' && <SetupScreen onSubmit={startAnalysis} error={error} />}
+        {screen === 'loading' && <LoadingScreen step={loadingStep} message={loadingMessage} />}
         {screen === 'dashboard' && (
           <Dashboard
             games={games}
@@ -187,9 +112,7 @@ function App() {
             onNavigateToPuzzles={handleNavigateToPuzzles}
           />
         )}
-        {screen === 'review' && selectedGame && (
-          <GameReview game={selectedGame} onBack={goToDashboard} />
-        )}
+        {screen === 'review' && selectedGame && <GameReview game={selectedGame} onBack={goToDashboard} />}
         {screen === 'puzzles' && (
           <PuzzleTrainer pattern={selectedPattern} patterns={patterns} onBack={goToDashboard} />
         )}
@@ -198,7 +121,73 @@ function App() {
   );
 }
 
-// ─── Fallback analysis for games we can't analyze deeply ───
+async function fetchGames(chesscomUser, lichessUser, setLoadingStep, setLoadingMessage) {
+  const allGames = [];
+
+  if (chesscomUser) {
+    setLoadingStep(0);
+    setLoadingMessage(`Connecting to Chess.com as "${chesscomUser}"...`);
+    try {
+      const chesscomGames = await getChesscomGames(chesscomUser, 15);
+      allGames.push(...chesscomGames);
+    } catch (err) {
+      console.warn('Chess.com fetch failed:', err.message);
+    }
+  }
+  setLoadingStep(1);
+
+  if (lichessUser) {
+    setLoadingStep(2);
+    setLoadingMessage(`Connecting to Lichess as "${lichessUser}"...`);
+    try {
+      const lichessGames = await getLichessGames(lichessUser, 15);
+      allGames.push(...lichessGames);
+    } catch (err) {
+      console.warn('Lichess fetch failed:', err.message);
+    }
+  }
+
+  setLoadingStep(3);
+  return allGames;
+}
+
+async function analyzeGamesWithJobs(games, setLoadingMessage) {
+  const deepGames = games.slice(0, Math.min(DEEP_ANALYSIS_LIMIT, games.length));
+  for (let i = 0; i < deepGames.length; i++) {
+    const game = deepGames[i];
+    setLoadingStepMessage(setLoadingMessage, i + 1, deepGames.length, game.opponent, 0, 0);
+    game.analysis = await runGameJob(game, (processed, total) => {
+      setLoadingStepMessage(setLoadingMessage, i + 1, deepGames.length, game.opponent, processed, total);
+    });
+  }
+
+  for (let i = deepGames.length; i < games.length; i++) {
+    if (!games[i].analysis) games[i].analysis = createFallbackAnalysis();
+  }
+}
+
+async function runGameJob(game, onProgress) {
+  const { jobId } = await createAnalysisJob({
+    gameId: game.id,
+    pgn: game.pgn,
+    playerColor: game.playerColor,
+    metadata: { platform: game.platform, opponent: game.opponent },
+  });
+
+  while (true) {
+    const job = await getAnalysisJob(jobId);
+    onProgress(job.progress?.processedMoves || 0, job.progress?.totalMoves || 0);
+    if (job.status === 'completed') return job.result;
+    if (job.status === 'failed') throw new Error(job.error || 'Analysis failed');
+    await wait(POLL_INTERVAL_MS);
+  }
+}
+
+function setLoadingStepMessage(setLoadingMessage, index, total, opponent, processed, moveTotal) {
+  const moveLabel = moveTotal > 0 ? ` (${processed}/${moveTotal} moves)` : '';
+  setLoadingMessage(`Analyzing game ${index} of ${total} (vs ${opponent})${moveLabel}...`);
+}
+
 function createFallbackAnalysis() {
   return {
     moves: [],
@@ -214,19 +203,20 @@ function createFallbackAnalysis() {
   };
 }
 
-// ─── Default patterns if none detected ───
 function getDefaultPatterns() {
-  return [
-    {
-      name: 'Keep Playing to Build Data',
-      icon: '📊',
-      severity: 'moderate',
-      frequency: 0,
-      description: 'We need more analyzed games to detect meaningful patterns. Play a few more games and come back for a deeper analysis!',
-      coaching: 'The more games we analyze, the smarter your coaching becomes. Try to play at least 10 rated games this week.',
-      puzzleTheme: 'short',
-    }
-  ];
+  return [{
+    name: 'Keep Playing to Build Data',
+    icon: '📊',
+    severity: 'moderate',
+    frequency: 0,
+    description: 'We need more analyzed games to detect meaningful patterns. Play a few more games and come back for a deeper analysis!',
+    coaching: 'The more games we analyze, the smarter your coaching becomes. Try to play at least 10 rated games this week.',
+    puzzleTheme: 'short',
+  }];
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default App;
