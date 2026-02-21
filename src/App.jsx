@@ -26,6 +26,7 @@ const WINDOW_TO_DAYS = {
   lastWeek: 7,
   last30Days: 30,
 };
+const BACKGROUND_REFRESH_DELAY_MS = 600;
 
 function App() {
   // ─── State ───
@@ -128,30 +129,23 @@ function App() {
       allGames.sort((a, b) => new Date(b.date) - new Date(a.date));
       allGames = allGames.slice(0, MAX_GAMES_PER_ANALYSIS);
 
-      // Step 4: Analyze each game with Stockfish
+      // Step 4: Analyze each game with Stockfish (fast pass first)
       setLoadingStep(4);
       setAnalysisProgress({ active: true, completed: 0, total: allGames.length });
-      const estimatedSeconds = estimateTotalAnalysisSeconds(allGames.length, engineMode);
+      const initialMode = getInitialAnalysisMode(engineMode);
+      const estimatedSeconds = estimateTotalAnalysisSeconds(allGames.length, initialMode);
       setLoadingMessage(`Running deep Stockfish analysis on ${allGames.length} games (~${estimatedSeconds}s estimated)...`);
 
-      for (let i = 0; i < allGames.length; i += 1) {
-        const game = allGames[i];
-        if (!game.pgn) {
-          game.analysis = createFallbackAnalysis(i);
-          continue;
-        }
-
-        const remaining = Math.max(0, allGames.length - i - 1);
-        const remainingSeconds = estimateTotalAnalysisSeconds(remaining, engineMode);
-        setLoadingMessage(`Analyzing game ${i + 1} of ${allGames.length} (vs ${game.opponent}) · ~${remainingSeconds}s remaining`);
-        try {
-          game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode);
-        } catch (err) {
-          console.warn(`Analysis failed for game ${i}:`, err.message);
-          game.analysis = createFallbackAnalysis(i);
-        }
-        setAnalysisProgress({ active: true, completed: i + 1, total: allGames.length });
-      }
+      await analyzeGamesSequentially({
+        games: allGames,
+        mode: initialMode,
+        onProgress: ({ index, total, opponent }) => {
+          const remaining = Math.max(0, total - index - 1);
+          const remainingSeconds = estimateTotalAnalysisSeconds(remaining, initialMode);
+          setLoadingMessage(`Analyzing game ${index + 1} of ${total} (vs ${opponent}) · ~${remainingSeconds}s remaining`);
+          setAnalysisProgress({ active: true, completed: index + 1, total });
+        },
+      });
 
       // Step 5: Detect patterns
       setLoadingStep(5);
@@ -165,8 +159,9 @@ function App() {
       await new Promise((r) => setTimeout(r, 600));
 
       const resolvedPatterns = detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns();
+      const shouldRefreshInBackground = shouldRunBackgroundRefresh(engineMode, initialMode);
       const authUserId = getAuthUserId(authUser);
-      if (authUserId) {
+      if (authUserId && !shouldRefreshInBackground) {
         recordAnalysisRun({
           userId: authUserId,
           usernames: { chesscom: chesscomUser, lichess: lichessUser },
@@ -180,6 +175,21 @@ function App() {
       await hydratePuzzleProgress(resolvedPatterns, { chesscom: chesscomUser, lichess: lichessUser });
       setScreen('dashboard');
       setActiveTab('dashboard');
+
+      if (shouldRefreshInBackground) {
+        setTimeout(() => {
+          refreshAnalysisInBackground({
+            games: allGames,
+            engineMode,
+            authUser,
+            usernames: { chesscom: chesscomUser, lichess: lichessUser },
+            setGames,
+            setPatterns,
+            setAnalysisRuns,
+            setAnalysisProgress,
+          });
+        }, BACKGROUND_REFRESH_DELAY_MS);
+      }
     } catch (err) {
       console.error('Analysis pipeline error:', err);
       setError(`Something went wrong: ${err.message}. Please try again.`);
@@ -399,6 +409,87 @@ function getDateFromWindow(window) {
 function estimateTotalAnalysisSeconds(gameCount, engineMode) {
   const perGameSeconds = engineMode === 'local' ? 4 : 7;
   return gameCount * perGameSeconds;
+}
+
+function getInitialAnalysisMode(engineMode) {
+  if (engineMode === 'auto') return 'local';
+  return engineMode;
+}
+
+function shouldRunBackgroundRefresh(engineMode, initialMode) {
+  return engineMode === 'auto' && initialMode !== engineMode;
+}
+
+async function analyzeGamesSequentially({ games, mode, onProgress = () => {} }) {
+  for (let i = 0; i < games.length; i += 1) {
+    const game = games[i];
+    if (!game.pgn) {
+      game.analysis = createFallbackAnalysis(i);
+      onProgress({ index: i, total: games.length, opponent: game.opponent || 'Unknown' });
+      continue;
+    }
+
+    onProgress({ index: i, total: games.length, opponent: game.opponent || 'Unknown' });
+    try {
+      game.analysis = await analyzeGame(game.pgn, game.playerColor, mode);
+    } catch (err) {
+      console.warn(`Analysis failed for game ${i}:`, err.message);
+      game.analysis = createFallbackAnalysis(i);
+    }
+  }
+}
+
+async function refreshAnalysisInBackground({
+  games,
+  engineMode,
+  authUser,
+  usernames,
+  setGames,
+  setPatterns,
+  setAnalysisRuns,
+  setAnalysisProgress,
+}) {
+  const refreshedGames = games.map((game) => ({ ...game }));
+  setAnalysisProgress({ active: true, completed: 0, total: refreshedGames.length });
+
+  for (let i = 0; i < refreshedGames.length; i += 1) {
+    const game = refreshedGames[i];
+    if (!game.pgn) {
+      setAnalysisProgress({ active: true, completed: i + 1, total: refreshedGames.length });
+      continue;
+    }
+
+    try {
+      game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode);
+      setGames([...refreshedGames]);
+      setPatterns(resolvePatterns(refreshedGames));
+    } catch (err) {
+      console.warn(`Background refinement failed for game ${i}:`, err.message);
+    }
+    setAnalysisProgress({ active: true, completed: i + 1, total: refreshedGames.length });
+  }
+
+  const resolvedPatterns = resolvePatterns(refreshedGames);
+  setGames(refreshedGames);
+  setPatterns(resolvedPatterns);
+
+  const authUserId = getAuthUserId(authUser);
+  if (authUserId) {
+    recordAnalysisRun({
+      userId: authUserId,
+      usernames,
+      games: refreshedGames,
+      patterns: resolvedPatterns,
+    });
+    setAnalysisRuns(listAnalysisRuns(authUserId));
+  }
+
+  setAnalysisProgress((prev) => ({ ...prev, active: false }));
+}
+
+function resolvePatterns(games) {
+  const detectedPatterns = detectPatterns(games);
+  return detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns();
 }
 
 function splitPgnGames(text) {
