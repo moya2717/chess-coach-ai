@@ -18,9 +18,7 @@ export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto
     playerColor,
     cacheKey: buildAnalysisCacheKey({ pgn, headers: chess.header(), playerColor, engineMode }),
     engineMode,
-  };
-
-  return postAnalyzeWithRetry(payload);
+  }, { timeout: 120000 });
 }
 
 export function buildAnalysisCacheKey({ pgn, headers = {}, playerColor = 'white', engineMode = 'auto' }) {
@@ -29,27 +27,10 @@ export function buildAnalysisCacheKey({ pgn, headers = {}, playerColor = 'white'
   return `${canonicalSeed}:${hashString(pgn)}`;
 }
 
-
-async function postAnalyzeWithRetry(payload, maxAttempts = 2) {
-  let lastError;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await apiPost('/api/analyze', payload, { timeout: 120000 });
-    } catch (error) {
-      lastError = error;
-      if (!isRetriableAnalyzeError(error) || attempt === maxAttempts) {
-        throw error;
-      }
-    }
-  }
-  throw lastError || new Error('Analysis request failed');
-}
-
-function isRetriableAnalyzeError(error) {
-  if (!error) return false;
-  if (error.code === 'ECONNABORTED') return true;
-  const status = error.response?.status;
-  return status >= 500 && status < 600;
+export function buildAnalysisCacheKey({ pgn, headers = {}, playerColor = 'white', engineMode = 'auto' }) {
+  const idSeed = headers.Site || headers.Link || headers.UTCDate || headers.Date || headers.Event || '';
+  const canonicalSeed = idSeed ? `${idSeed}:${playerColor}:${engineMode}` : `${playerColor}:${engineMode}`;
+  return `${canonicalSeed}:${hashString(pgn)}`;
 }
 
 /**
