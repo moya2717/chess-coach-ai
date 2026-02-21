@@ -219,6 +219,32 @@ body {
 .stat-card .stat-value { font-family: 'DM Serif Display', serif; font-size: 28px; }
 .stat-card .stat-detail { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
 
+.dashboard-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 16px 12px;
+}
+.dashboard-toggle {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.dashboard-toggle:hover {
+  border-color: var(--accent-blue);
+  color: var(--text-primary);
+}
+.dashboard-toggle.active {
+  border-color: var(--accent-green);
+  background: var(--accent-green-dim);
+  color: var(--accent-green);
+}
+
 /* ═══ PANELS ═══ */
 .panel {
   background: var(--bg-card); border-radius: var(--radius);
