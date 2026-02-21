@@ -4,6 +4,7 @@ export default function SetupScreen({ onSubmit, error }) {
   const [chesscomUser, setChesscomUser] = useState('');
   const [lichessUser, setLichessUser] = useState('');
   const [engineMode, setEngineMode] = useState('auto');
+  const [timeWindow, setTimeWindow] = useState('last30Days');
   const [uploadedPgn, setUploadedPgn] = useState('');
 
   const canAnalyze = Boolean(chesscomUser || lichessUser || uploadedPgn.trim());
@@ -53,6 +54,14 @@ export default function SetupScreen({ onSubmit, error }) {
           <div className="hint">Leave blank if you only play on Chess.com</div>
         </div>
         <div className="input-group">
+          <label>Game Window</label>
+          <select value={timeWindow} onChange={(e) => setTimeWindow(e.target.value)}>
+            <option value="last30Days">Last 30 days</option>
+            <option value="lastWeek">Last week</option>
+          </select>
+          <div className="hint">Used for Chess.com/Lichess fetches. PGN upload analyzes uploaded games only.</div>
+        </div>
+        <div className="input-group">
           <label>Upload PGN File (optional)</label>
           <input type="file" accept=".pgn,text/plain" onChange={handlePgnUpload} />
           <div className="hint">Upload your own PGNs to include custom games in pattern analysis.</div>
@@ -68,7 +77,7 @@ export default function SetupScreen({ onSubmit, error }) {
         <button
           className="btn-primary"
           disabled={!canAnalyze}
-          onClick={() => onSubmit({ chesscomUser, lichessUser, uploadedPgn, engineMode })}
+          onClick={() => onSubmit({ chesscomUser, lichessUser, uploadedPgn, engineMode, timeWindow })}
         >
           Analyze My Games →
         </button>

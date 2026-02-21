@@ -21,7 +21,11 @@ import { getPuzzleProgress, updatePuzzleProgress } from './services/puzzles';
 import { isAuthConfigured, logoutUser, subscribeToAuthState } from './services/auth';
 import { listAnalysisRuns, recordAnalysisRun } from './services/analysis-history';
 
-const MAX_GAMES_PER_PLATFORM = 200;
+const MAX_GAMES_PER_ANALYSIS = 30;
+const WINDOW_TO_DAYS = {
+  lastWeek: 7,
+  last30Days: 30,
+};
 
 function App() {
   // ─── State ───
@@ -51,7 +55,6 @@ function App() {
     return unsubscribe;
   }, []);
 
-
   const hydratePuzzleProgress = useCallback(async (detectedPatterns, nextUsernames) => {
     const userKey = nextUsernames.lichess || nextUsernames.chesscom || 'guest';
     const entries = await Promise.all(detectedPatterns.map(async (entry) => {
@@ -62,20 +65,27 @@ function App() {
   }, []);
 
   // ─── Fetch and Analyze Games ───
-  const startAnalysis = useCallback(async ({ chesscomUser = '', lichessUser = '', uploadedPgn = '', engineMode = 'auto' }) => {
+  const startAnalysis = useCallback(async ({
+    chesscomUser = '',
+    lichessUser = '',
+    uploadedPgn = '',
+    engineMode = 'auto',
+    timeWindow = 'last30Days',
+  }) => {
     setScreen('loading');
     setError(null);
     setUsernames({ chesscom: chesscomUser, lichess: lichessUser });
 
     try {
       let allGames = [];
+      const dateFrom = getDateFromWindow(timeWindow);
 
       // Step 1: Fetch from Chess.com
-      if (chesscomUser) {
+      if (chesscomUser && !uploadedPgn.trim()) {
         setLoadingStep(0);
         setLoadingMessage(`Connecting to Chess.com as "${chesscomUser}"...`);
         try {
-          const chesscomGames = await getChesscomGames(chesscomUser, MAX_GAMES_PER_PLATFORM);
+          const chesscomGames = await getChesscomGames(chesscomUser, MAX_GAMES_PER_ANALYSIS, dateFrom);
           allGames.push(...chesscomGames);
           setLoadingStep(1);
         } catch (err) {
@@ -87,11 +97,11 @@ function App() {
       }
 
       // Step 2: Fetch from Lichess
-      if (lichessUser) {
+      if (lichessUser && !uploadedPgn.trim()) {
         setLoadingStep(2);
         setLoadingMessage(`Connecting to Lichess as "${lichessUser}"...`);
         try {
-          const lichessGames = await getLichessGames(lichessUser, MAX_GAMES_PER_PLATFORM);
+          const lichessGames = await getLichessGames(lichessUser, MAX_GAMES_PER_ANALYSIS, dateFrom);
           allGames.push(...lichessGames);
           setLoadingStep(3);
         } catch (err) {
@@ -102,39 +112,40 @@ function App() {
         setLoadingStep(3);
       }
 
-
       if (uploadedPgn.trim()) {
-        const importedGames = parseUploadedPgnGames(uploadedPgn);
-        allGames.push(...importedGames);
+        const importedGames = parseUploadedPgnGames(uploadedPgn, { chesscomUser, lichessUser });
+        allGames = importedGames;
       }
 
       if (allGames.length === 0) {
-        setError('No games found. Please check your username(s) and try again.');
+        setError('No games found. Please check your username(s), filter window, and try again.');
         setScreen('setup');
         return;
       }
 
       // Step 3: Sort by date (most recent first)
       allGames.sort((a, b) => new Date(b.date) - new Date(a.date));
+      allGames = allGames.slice(0, MAX_GAMES_PER_ANALYSIS);
 
       // Step 4: Analyze each game with Stockfish
       setLoadingStep(4);
-      setLoadingMessage('Running Stockfish analysis on your games...');
+      const estimatedSeconds = estimateTotalAnalysisSeconds(allGames.length, engineMode);
+      setLoadingMessage(`Running deep Stockfish analysis on ${allGames.length} games (~${estimatedSeconds}s estimated)...`);
 
-      // Analyze the first few games deeply (the rest get quick analysis)
-      const deepAnalysisCount = Math.min(8, allGames.length);
-      for (let i = 0; i < allGames.length; i++) {
+      for (let i = 0; i < allGames.length; i += 1) {
         const game = allGames[i];
-        if (game.pgn && i < deepAnalysisCount) {
-          setLoadingMessage(`Analyzing game ${i + 1} of ${deepAnalysisCount} (vs ${game.opponent})...`);
-          try {
-            game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode);
-          } catch (err) {
-            console.warn(`Analysis failed for game ${i}:`, err.message);
-            game.analysis = createFallbackAnalysis();
-          }
-        } else if (!game.analysis) {
-          // Quick fallback analysis for remaining games
+        if (!game.pgn) {
+          game.analysis = createFallbackAnalysis();
+          continue;
+        }
+
+        const remaining = Math.max(0, allGames.length - i - 1);
+        const remainingSeconds = estimateTotalAnalysisSeconds(remaining, engineMode);
+        setLoadingMessage(`Analyzing game ${i + 1} of ${allGames.length} (vs ${game.opponent}) · ~${remainingSeconds}s remaining`);
+        try {
+          game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode);
+        } catch (err) {
+          console.warn(`Analysis failed for game ${i}:`, err.message);
           game.analysis = createFallbackAnalysis();
         }
       }
@@ -148,8 +159,7 @@ function App() {
       setLoadingStep(6);
       setLoadingMessage('Your coaching report is ready!');
 
-      // Short pause so user sees the final step
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 600));
 
       const resolvedPatterns = detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns();
       const authUserId = getAuthUserId(authUser);
@@ -167,7 +177,6 @@ function App() {
       await hydratePuzzleProgress(resolvedPatterns, { chesscom: chesscomUser, lichess: lichessUser });
       setScreen('dashboard');
       setActiveTab('dashboard');
-
     } catch (err) {
       console.error('Analysis pipeline error:', err);
       setError(`Something went wrong: ${err.message}. Please try again.`);
@@ -193,8 +202,6 @@ function App() {
     setActiveTab('dashboard');
   };
 
-
-
   const handlePuzzleProgressUpdate = useCallback(async ({ pattern, solved, tries, timeSpent }) => {
     const userKey = usernames.lichess || usernames.chesscom || 'guest';
     const progress = await updatePuzzleProgress({
@@ -218,7 +225,6 @@ function App() {
 
   return (
     <>
-      {/* Header */}
       <header className="header">
         <div className="header-brand">
           <div className="logo">♞</div>
@@ -243,7 +249,6 @@ function App() {
         )}
       </header>
 
-      {/* Main Content */}
       <div className="app-container">
         {requiresAuth && (
           <LoginScreen onLoginSuccess={() => setError(null)} onError={setError} />
@@ -282,7 +287,6 @@ function App() {
   );
 }
 
-// ─── Fallback analysis for games we can't analyze deeply ───
 function createFallbackAnalysis() {
   return {
     moves: [],
@@ -294,11 +298,10 @@ function createFallbackAnalysis() {
       opening: Math.floor(Math.random() * 25) + 60,
       middlegame: Math.floor(Math.random() * 30) + 45,
       endgame: Math.floor(Math.random() * 35) + 35,
-    }
+    },
   };
 }
 
-// ─── Default patterns if none detected ───
 function getDefaultPatterns() {
   return [
     {
@@ -309,19 +312,18 @@ function getDefaultPatterns() {
       description: 'We need more analyzed games to detect meaningful patterns. Play a few more games and come back for a deeper analysis!',
       coaching: 'The more games we analyze, the smarter your coaching becomes. Try to play at least 10 rated games this week.',
       puzzleTheme: 'short',
-    }
+    },
   ];
 }
 
-
-function parseUploadedPgnGames(uploadedPgn) {
+function parseUploadedPgnGames(uploadedPgn, usernames = {}) {
   return splitPgnGames(uploadedPgn)
-    .map((pgn, index) => toUploadedGame(pgn, index))
+    .map((pgn, index) => toUploadedGame(pgn, index, usernames))
     .filter(Boolean)
     .filter((game) => !isCoachOpponent(game.opponent));
 }
 
-function toUploadedGame(pgn, index) {
+function toUploadedGame(pgn, index, usernames) {
   const chess = new Chess();
   try {
     chess.loadPgn(pgn, { strict: false });
@@ -332,7 +334,7 @@ function toUploadedGame(pgn, index) {
   const headers = chess.header();
   const whiteName = headers.White || '';
   const blackName = headers.Black || '';
-  const userIsWhite = !isCoachOpponent(blackName);
+  const userIsWhite = inferUploadedPlayerIsWhite(whiteName, blackName, usernames);
 
   return {
     id: `upload-${index}`,
@@ -351,6 +353,33 @@ function toUploadedGame(pgn, index) {
     analysis: null,
     moves: [],
   };
+}
+
+function inferUploadedPlayerIsWhite(whiteName, blackName, usernames = {}) {
+  const candidates = [usernames.chesscom, usernames.lichess]
+    .filter(Boolean)
+    .map((name) => String(name).trim().toLowerCase());
+  const white = String(whiteName || '').trim().toLowerCase();
+  const black = String(blackName || '').trim().toLowerCase();
+
+  if (candidates.length === 0) {
+    return !isCoachOpponent(blackName);
+  }
+  if (candidates.includes(white)) return true;
+  if (candidates.includes(black)) return false;
+  return !isCoachOpponent(blackName);
+}
+
+function getDateFromWindow(window) {
+  const days = WINDOW_TO_DAYS[window] || WINDOW_TO_DAYS.last30Days;
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString().split('T')[0];
+}
+
+function estimateTotalAnalysisSeconds(gameCount, engineMode) {
+  const perGameSeconds = engineMode === 'local' ? 4 : 7;
+  return gameCount * perGameSeconds;
 }
 
 function splitPgnGames(text) {

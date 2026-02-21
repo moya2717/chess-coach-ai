@@ -35,3 +35,20 @@ test('analyzeGameWithEngine local mode avoids web fetch when stockfish binary is
   assert.equal(calls, 0);
   assert.equal(typeof analysis.accuracy, 'number');
 });
+
+
+test('analyzeGameWithEngine marks opponent moves as book and avoids great spam on material fallback', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => {
+    throw new Error('network down');
+  };
+
+  const pgn = '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6';
+  const analysis = await analyzeGameWithEngine(pgn, 'white', 'web');
+  global.fetch = originalFetch;
+
+  const opponentMoves = analysis.moves.filter((move) => !move.isPlayerMove);
+  const playerMoves = analysis.moves.filter((move) => move.isPlayerMove);
+  assert.ok(opponentMoves.every((move) => move.classification === 'book'));
+  assert.ok(playerMoves.every((move) => move.classification !== 'great'));
+});

@@ -65,6 +65,8 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
   const currentEval = evaluation?.eval || 0;
   const evalDrop = getEvalDrop({ isPlayerMove, playerColor, prevEval, currentEval });
 
+  const evalSource = evaluation?.source || 'unknown';
+
   return {
     num: Math.floor(index / 2) + 1,
     san: move.san,
@@ -73,13 +75,13 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
     fenAfter,
     eval: currentEval,
     evalDrop,
-    classification: classifyMove(evalDrop),
+    classification: isPlayerMove ? classifyMove(evalDrop, evalSource) : 'book',
     phase: getGamePhase(index, totalMoves),
     isPlayerMove,
     from: move.from,
     to: move.to,
-    evalSource: evaluation?.source || 'unknown',
-    moveScore: computeMoveScore(evaluation?.source, evalDrop),
+    evalSource,
+    moveScore: computeMoveScore(evalSource, evalDrop),
   };
 }
 
@@ -179,11 +181,11 @@ function markEngineUnavailable() {
   engineUnavailableUntil = Date.now() + ENGINE_COOLDOWN_MS;
 }
 
-function classifyMove(evalDrop) {
+function classifyMove(evalDrop, evalSource) {
   if (evalDrop > 2.0) return 'blunder';
   if (evalDrop > 1.0) return 'mistake';
-  if (evalDrop > 0.5) return 'inaccuracy';
-  if (evalDrop < 0.1) return 'great';
+  if (evalDrop > 0.4) return 'inaccuracy';
+  if (evalSource !== 'material' && evalDrop <= 0.03) return 'great';
   return 'good';
 }
 
