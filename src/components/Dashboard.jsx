@@ -7,6 +7,8 @@ export default function Dashboard({
   puzzleProgressByPattern,
   onSelectGame,
   onNavigateToPuzzles,
+  onReanalyzeGames,
+  analysisInProgress = false,
 }) {
   const totalGames = games.length;
   const wins = games.filter((g) => g.result === 'win').length;
@@ -18,6 +20,7 @@ export default function Dashboard({
   const aggregatePuzzleProgress = summarizePuzzleProgress(puzzleProgressByPattern);
   const trendSeries = buildTrendSeries(analysisRuns);
   const deltas = computeDeltaSummary(analysisRuns);
+  const reviewQueue = buildReviewQueue(games);
 
   const colorForAccuracy = (val) =>
     val > 70 ? 'var(--accent-green)' : val > 55 ? 'var(--accent-amber)' : 'var(--accent-red)';
@@ -51,6 +54,38 @@ export default function Dashboard({
         <Widget title="Puzzle Completed" value={aggregatePuzzleProgress.completedCount} detail="Theme-targeted solves" />
         <Widget title="Puzzle Streak" value={aggregatePuzzleProgress.streak} detail={`Best: ${aggregatePuzzleProgress.bestStreak}`} />
         <Widget title="Puzzle Accuracy" value={`${aggregatePuzzleProgress.accuracy}%`} detail={`${aggregatePuzzleProgress.attempts} attempts`} />
+      </div>
+
+      <div className="panel animate-in delay-1">
+        <div className="panel-header">
+          <h3>🚀 Priority Queue</h3>
+          <button
+            className="back-btn"
+            onClick={onReanalyzeGames}
+            disabled={analysisInProgress || games.length === 0}
+            style={{ marginLeft: 'auto', opacity: analysisInProgress ? 0.7 : 1 }}
+          >
+            {analysisInProgress ? 'Engine running…' : 'Re-run Engine Analysis'}
+          </button>
+        </div>
+        {reviewQueue.length === 0 ? (
+          <div className="pattern-desc">No critical games detected yet. Keep analyzing new games.</div>
+        ) : (
+          reviewQueue.map((item) => (
+            <div key={item.id} className="pattern-item" onClick={() => onSelectGame(item)}>
+              <div className="pattern-name">
+                🧠 Review vs {item.opponent}
+                <span className="badge badge-amber" style={{ fontSize: 10 }}>
+                  {item.analysis?.blunders || 0} blunders · {item.analysis?.accuracy || 0}%
+                </span>
+                <span className={`badge ${getAnalysisStatusBadgeClass(item.analysisStatus)}`} style={{ fontSize: 10 }}>
+                  {formatAnalysisStatus(item.analysisStatus)}
+                </span>
+              </div>
+              <div className="pattern-desc">{item.opening} · {item.platform} · {item.timeControl}</div>
+            </div>
+          ))
+        )}
       </div>
 
       <div className="panel animate-in delay-1">
@@ -112,7 +147,7 @@ export default function Dashboard({
           <div key={game.id} className="game-item" onClick={() => onSelectGame(game)}>
             <div className="game-info">
               <span className="opponent">vs {game.opponent} ({game.opponentRating})</span>
-              <span className="game-meta">{game.opening} · {game.timeControl} · {game.platform} · Accuracy: {game.analysis?.accuracy || '?'}%</span>
+              <span className="game-meta">{game.opening} · {game.timeControl} · {game.platform} · Accuracy: {game.analysis?.accuracy || '?'}% · {formatAnalysisStatus(game.analysisStatus)}</span>
             </div>
             <span className={`game-result ${game.result === 'win' ? 'result-win' : game.result === 'loss' ? 'result-loss' : 'result-draw'}`}>
               {game.result.toUpperCase()}
@@ -191,3 +226,26 @@ function averageFromGames(games, selector) {
   return Math.round(total / games.length);
 }
 
+function buildReviewQueue(games) {
+  return [...games]
+    .filter((game) => game.analysis)
+    .sort((a, b) => getReviewScore(b) - getReviewScore(a))
+    .slice(0, 3);
+}
+
+function getReviewScore(game) {
+  const blunders = game.analysis?.blunders || 0;
+  const mistakes = game.analysis?.mistakes || 0;
+  const accuracyPenalty = Math.max(0, 80 - (game.analysis?.accuracy || 0));
+  return blunders * 5 + mistakes * 2 + accuracyPenalty;
+}
+
+
+function formatAnalysisStatus(status) {
+  if (status === 'fallback-material') return 'Limited engine depth';
+  return 'Deep analyzed';
+}
+
+function getAnalysisStatusBadgeClass(status) {
+  return status === 'fallback-material' ? 'badge-amber' : 'badge-blue';
+}
