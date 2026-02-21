@@ -295,6 +295,8 @@ body {
   font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
 }
 .class-brilliant { background: rgba(96, 220, 220, 0.2); color: #60dcdc; }
+.class-best { background: rgba(170, 120, 255, 0.22); color: #c9a7ff; }
+.class-excellent { background: rgba(90, 170, 255, 0.2); color: #91c6ff; }
 .class-great { background: var(--accent-blue-dim); color: var(--accent-blue); }
 .class-good { background: var(--accent-green-dim); color: var(--accent-green); }
 .class-book { background: rgba(160,160,160,0.15); color: #aaa; }

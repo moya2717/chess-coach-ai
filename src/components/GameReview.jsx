@@ -32,7 +32,8 @@ export default function GameReview({ game, onBack }) {
 
   // Classification styling
   const classMap = {
-    brilliant: 'class-brilliant', great: 'class-great', good: 'class-good',
+    brilliant: 'class-brilliant', best: 'class-best', excellent: 'class-excellent',
+    great: 'class-great', good: 'class-good',
     book: 'class-book', inaccuracy: 'class-inaccuracy',
     mistake: 'class-mistake', blunder: 'class-blunder',
   };
