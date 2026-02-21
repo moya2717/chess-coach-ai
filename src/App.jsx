@@ -269,6 +269,7 @@ function App() {
           <PuzzleTrainer
             pattern={selectedPattern}
             patterns={patterns}
+            games={games}
             onBack={goToDashboard}
             usernames={usernames}
             onPuzzleProgressUpdate={handlePuzzleProgressUpdate}
