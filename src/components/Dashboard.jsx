@@ -7,6 +7,8 @@ export default function Dashboard({
   puzzleProgressByPattern,
   onSelectGame,
   onNavigateToPuzzles,
+  onReanalyzeGames,
+  analysisInProgress = false,
 }) {
   const totalGames = games.length;
   const wins = games.filter((g) => g.result === 'win').length;
@@ -57,6 +59,14 @@ export default function Dashboard({
       <div className="panel animate-in delay-1">
         <div className="panel-header">
           <h3>🚀 Priority Queue</h3>
+          <button
+            className="back-btn"
+            onClick={onReanalyzeGames}
+            disabled={analysisInProgress || games.length === 0}
+            style={{ marginLeft: 'auto', opacity: analysisInProgress ? 0.7 : 1 }}
+          >
+            {analysisInProgress ? 'Engine running…' : 'Re-run Engine Analysis'}
+          </button>
         </div>
         {reviewQueue.length === 0 ? (
           <div className="pattern-desc">No critical games detected yet. Keep analyzing new games.</div>

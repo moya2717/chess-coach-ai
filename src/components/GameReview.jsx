@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { generateCoachComment, generateGameSummary } from '../services/coach';
 
-export default function GameReview({ game, onBack }) {
+export default function GameReview({ game, onBack, onReanalyzeGames, analysisInProgress = false }) {
   const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
 
   const moves = game.analysis?.moves || [];
@@ -192,6 +192,15 @@ export default function GameReview({ game, onBack }) {
               fontSize: 12,
             }}>
               ⚠️ This game used limited engine depth for parts of analysis. Re-run analysis for stronger move-by-move feedback.
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="back-btn"
+                  onClick={onReanalyzeGames}
+                  disabled={analysisInProgress}
+                >
+                  {analysisInProgress ? 'Engine running…' : 'Re-run Engine Analysis'}
+                </button>
+              </div>
             </div>
           )}
 

@@ -230,6 +230,24 @@ function App() {
     return progress;
   }, [usernames]);
 
+
+  const handleReanalyzeGames = useCallback(async () => {
+    if (!games.length || analysisProgress.active) {
+      return;
+    }
+
+    await refreshAnalysisInBackground({
+      games,
+      engineMode: resolveRefreshMode('auto', games),
+      authUser,
+      usernames,
+      setGames,
+      setPatterns,
+      setAnalysisRuns,
+      setAnalysisProgress,
+    });
+  }, [analysisProgress.active, authUser, games, usernames]);
+
   const showNav = authUser && screen !== 'setup' && screen !== 'loading';
   const requiresAuth = isAuthConfigured() && !authUser;
   const analysisCompletion = getAnalysisCompletion(analysisProgress);
@@ -295,10 +313,17 @@ function App() {
             puzzleProgressByPattern={puzzleProgressByPattern}
             onSelectGame={handleSelectGame}
             onNavigateToPuzzles={handleNavigateToPuzzles}
+            onReanalyzeGames={handleReanalyzeGames}
+            analysisInProgress={analysisProgress.active}
           />
         )}
         {!requiresAuth && screen === 'review' && selectedGame && (
-          <GameReview game={selectedGame} onBack={goToDashboard} />
+          <GameReview
+            game={selectedGame}
+            onBack={goToDashboard}
+            onReanalyzeGames={handleReanalyzeGames}
+            analysisInProgress={analysisProgress.active}
+          />
         )}
         {!requiresAuth && screen === 'puzzles' && (
           <PuzzleTrainer
