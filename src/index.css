@@ -368,6 +368,44 @@ body {
 .move-cell.is-mistake { color: #ffa03c; }
 .move-cell.is-inaccuracy { color: var(--accent-amber); }
 
+.critical-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.critical-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 10px;
+  text-align: left;
+}
+
+.critical-card.active {
+  border-color: var(--accent-blue);
+}
+
+.critical-title {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.critical-row {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.critical-error {
+  color: var(--accent-red);
+  font-size: 12px;
+}
+
 /* ═══ ANIMATIONS ═══ */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(12px); }

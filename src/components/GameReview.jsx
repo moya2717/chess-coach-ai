@@ -3,6 +3,12 @@ import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { generateCoachComment, generateGameSummary } from '../services/coach';
 import { analyzePosition } from '../services/analysis';
+import {
+  detectTrainingTheme,
+  formatPunishmentLine,
+  isCriticalMove,
+  toSanFromUci,
+} from '../services/critical-moments';
 
 export default function GameReview({ game, onBack, onReanalyzeGames, analysisInProgress = false }) {
   const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
@@ -10,9 +16,16 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
   const [engineLineError, setEngineLineError] = useState('');
   const [engineLineLoading, setEngineLineLoading] = useState(false);
   const [enginePreviewIndex, setEnginePreviewIndex] = useState(-1);
+  const [criticalOnly, setCriticalOnly] = useState(false);
+  const [selectedCriticalIndex, setSelectedCriticalIndex] = useState(null);
+  const [criticalInsights, setCriticalInsights] = useState({});
+  const [criticalLoadingIndex, setCriticalLoadingIndex] = useState(null);
 
   const moves = game.analysis?.moves || [];
   const hasMoves = moves.length > 0;
+  const criticalMoves = moves
+    .map((move, index) => ({ ...move, index }))
+    .filter(isCriticalMove);
 
   // Current position
   const currentMove = currentMoveIndex >= 0 ? moves[currentMoveIndex] : null;
@@ -45,6 +58,50 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
     setEngineLineError('');
     setEnginePreviewIndex(-1);
   }, [currentMoveIndex, game.id]);
+
+  useEffect(() => {
+    setCriticalOnly(false);
+    setSelectedCriticalIndex(null);
+    setCriticalInsights({});
+    setCriticalLoadingIndex(null);
+  }, [game.id]);
+
+  const loadCriticalInsight = async (move) => {
+    if (!move || criticalInsights[move.index]) return;
+    setCriticalLoadingIndex(move.index);
+    try {
+      const result = await analyzePosition(move.fenAfter, {
+        engineMode: 'auto',
+        maxPlies: 6,
+        forceRefresh: true,
+      });
+      const punishmentLine = result.line || [];
+      setCriticalInsights((prev) => ({
+        ...prev,
+        [move.index]: {
+          punishmentLine,
+          trainingTheme: detectTrainingTheme(move, punishmentLine),
+        },
+      }));
+    } catch {
+      setCriticalInsights((prev) => ({
+        ...prev,
+        [move.index]: {
+          punishmentLine: [],
+          trainingTheme: detectTrainingTheme(move, []),
+          error: 'Could not fetch punishment line right now.',
+        },
+      }));
+    } finally {
+      setCriticalLoadingIndex(null);
+    }
+  };
+
+  const handleCriticalSelect = async (move) => {
+    setCurrentMoveIndex(move.index);
+    setSelectedCriticalIndex(move.index);
+    await loadCriticalInsight(move);
+  };
 
   const fetchEngineLine = async () => {
     setEngineLineLoading(true);
@@ -288,35 +345,82 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
             <div className="move-list-panel">
               <div className="panel-header">
                 <h3>Moves</h3>
-                <span className="badge badge-blue">Accuracy: {game.analysis?.accuracy || '?'}%</span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button className="back-btn" onClick={() => setCriticalOnly((value) => !value)}>
+                    {criticalOnly ? 'Show all moves' : 'Critical moments'}
+                  </button>
+                  <span className="badge badge-blue">Accuracy: {game.analysis?.accuracy || '?'}%</span>
+                </div>
               </div>
-              <div className="move-list">
-                {movePairs.map((pair) => (
-                  <div key={pair.num} style={{ display: 'contents' }}>
-                    <div className="move-num">{pair.num}.</div>
-                    <div
-                      className={`move-cell ${currentMoveIndex === pair.whiteIdx ? 'active' : ''} ${
-                        pair.white?.classification === 'blunder' ? 'is-blunder' :
-                        pair.white?.classification === 'mistake' ? 'is-mistake' :
-                        pair.white?.classification === 'inaccuracy' ? 'is-inaccuracy' : ''
-                      }`}
-                      onClick={() => setCurrentMoveIndex(pair.whiteIdx)}
-                    >
-                      {pair.white?.san || ''}
+              {!criticalOnly && (
+                <div className="move-list">
+                  {movePairs.map((pair) => (
+                    <div key={pair.num} style={{ display: 'contents' }}>
+                      <div className="move-num">{pair.num}.</div>
+                      <div
+                        className={`move-cell ${currentMoveIndex === pair.whiteIdx ? 'active' : ''} ${
+                          pair.white?.classification === 'blunder' ? 'is-blunder' :
+                          pair.white?.classification === 'mistake' ? 'is-mistake' :
+                          pair.white?.classification === 'inaccuracy' ? 'is-inaccuracy' : ''
+                        }`}
+                        onClick={() => setCurrentMoveIndex(pair.whiteIdx)}
+                      >
+                        {pair.white?.san || ''}
+                      </div>
+                      <div
+                        className={`move-cell ${currentMoveIndex === pair.blackIdx ? 'active' : ''} ${
+                          pair.black?.classification === 'blunder' ? 'is-blunder' :
+                          pair.black?.classification === 'mistake' ? 'is-mistake' :
+                          pair.black?.classification === 'inaccuracy' ? 'is-inaccuracy' : ''
+                        }`}
+                        onClick={() => pair.black && setCurrentMoveIndex(pair.blackIdx)}
+                      >
+                        {pair.black?.san || ''}
+                      </div>
                     </div>
-                    <div
-                      className={`move-cell ${currentMoveIndex === pair.blackIdx ? 'active' : ''} ${
-                        pair.black?.classification === 'blunder' ? 'is-blunder' :
-                        pair.black?.classification === 'mistake' ? 'is-mistake' :
-                        pair.black?.classification === 'inaccuracy' ? 'is-inaccuracy' : ''
-                      }`}
-                      onClick={() => pair.black && setCurrentMoveIndex(pair.blackIdx)}
-                    >
-                      {pair.black?.san || ''}
+                  ))}
+                </div>
+              )}
+
+              {criticalOnly && (
+                <div className="critical-list">
+                  {criticalMoves.length === 0 && (
+                    <div className="pattern-desc" style={{ padding: 12 }}>
+                      No inaccuracies, mistakes, or blunders found in your moves.
                     </div>
-                  </div>
-                ))}
-              </div>
+                  )}
+                  {criticalMoves.map((move) => {
+                    const insight = criticalInsights[move.index];
+                    const bestMoveSan = toSanFromUci(move.fenBefore, move.bestMove) || move.bestMove || 'N/A';
+                    const isLoading = criticalLoadingIndex === move.index;
+                    return (
+                      <button
+                        key={`${move.num}-${move.index}`}
+                        type="button"
+                        className={`critical-card ${selectedCriticalIndex === move.index ? 'active' : ''}`}
+                        onClick={() => handleCriticalSelect(move)}
+                      >
+                        <div className="critical-title">
+                          <span>{move.num}. {move.san}</span>
+                          <span className={`move-classification ${classMap[move.classification] || 'class-good'}`}>
+                            {move.classification}
+                          </span>
+                        </div>
+                        <div className="critical-row"><strong>Your move:</strong> {move.san}</div>
+                        <div className="critical-row"><strong>Best move:</strong> {bestMoveSan}</div>
+                        <div className="critical-row">
+                          <strong>Punishment line:</strong>{' '}
+                          {isLoading ? 'Analyzing punishment line…' : formatPunishmentLine(insight?.punishmentLine)}
+                        </div>
+                        {insight?.error && <div className="critical-error">{insight.error}</div>}
+                        <div className="critical-row">
+                          <strong>Training theme:</strong> {insight?.trainingTheme || detectTrainingTheme(move, [])}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
