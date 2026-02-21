@@ -32,7 +32,9 @@ export async function fetchLichessRecentGames(username, count = 20) {
       timeoutMs: 12_000,
     });
 
-    return parseNdjson(text).map((game, index) => processLichessGame(game, username, index));
+    return parseNdjson(text)
+      .map((game, index) => processLichessGame(game, username, index))
+      .filter((game) => !isCoachGame(game));
   } catch (error) {
     if (error.status === 404) {
       throw new ApiError({
@@ -97,6 +99,12 @@ function processLichessGame(rawGame, username, index) {
     analysis: null,
     moves: [],
   };
+}
+
+
+function isCoachGame(game) {
+  const opponentName = (game?.opponent || '').toLowerCase();
+  return opponentName.includes('coach');
 }
 
 function resolveResult(rawGame, playerColor) {

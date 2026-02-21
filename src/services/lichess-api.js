@@ -27,5 +27,5 @@ export async function getTablebase() {
 }
 
 export async function getPuzzles(theme = '', count = 5) {
-  return apiGet('/api/puzzles', { theme, count });
+  return Promise.all(Array.from({ length: count }, () => apiGet('/api/puzzle', { theme })));
 }

@@ -31,7 +31,8 @@ export async function fetchChesscomRecentGames(username, count = 20) {
   return allGames
     .slice(-count)
     .reverse()
-    .map((game, index) => processChessComGame(game, username, index));
+    .map((game, index) => processChessComGame(game, username, index))
+    .filter((game) => !isCoachGame(game));
 }
 
 async function fetchArchives(username) {
@@ -75,6 +76,12 @@ function processChessComGame(rawGame, username, index) {
     analysis: null,
     moves: [],
   };
+}
+
+
+function isCoachGame(game) {
+  const opponentName = (game?.opponent || '').toLowerCase();
+  return opponentName.includes('coach');
 }
 
 function resolveResult(player, opponent) {

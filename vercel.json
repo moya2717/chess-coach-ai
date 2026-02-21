@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "functions": {
+    "api/[...route].js": {
+      "runtime": "nodejs20.x"
+    }
+  }
+}
