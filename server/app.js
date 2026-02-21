@@ -4,6 +4,12 @@ import { normalizeUnknownError } from './lib/errors.js';
 import { fetchChesscomRecentGames, fetchChesscomProfile, fetchChesscomStats } from './providers/chesscom-provider.js';
 import { fetchLichessRecentGames, fetchLichessPuzzles, fetchLichessProfile } from './providers/lichess-provider.js';
 import { analyzeGameWithEngine } from './providers/analysis-provider.js';
+import {
+  getPuzzleProgress,
+  normalizePuzzlePayload,
+  recordPuzzleAttempt,
+  resolvePuzzleTheme,
+} from './services/puzzle-service.js';
 
 const gameCache = new TTLCache(3 * 60_000);
 const evalCache = new TTLCache(5 * 60_000);
@@ -16,7 +22,9 @@ export function createHandler() {
       if (req.method === 'GET' && url.pathname === '/api/profile') return handleProfile(url, res);
       if (req.method === 'GET' && url.pathname === '/api/stats') return handleStats(url, res);
       if (req.method === 'POST' && url.pathname === '/api/analyze') return handleAnalyze(req, res);
-      if (req.method === 'GET' && url.pathname === '/api/puzzles') return handlePuzzles(url, res);
+      if (req.method === 'GET' && url.pathname === '/api/puzzle') return handlePuzzle(url, res);
+      if (req.method === 'GET' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgress(url, res);
+      if (req.method === 'POST' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgressUpdate(req, res);
       return sendJson(res, 404, { code: 'NOT_FOUND', message: 'Route not found', retryable: false });
     } catch (error) {
       const normalized = normalizeUnknownError(error);
@@ -84,11 +92,27 @@ async function handleAnalyze(req, res) {
   return sendJson(res, 200, analysis);
 }
 
-async function handlePuzzles(url, res) {
-  const theme = url.searchParams.get('theme') || '';
-  const count = Number(url.searchParams.get('count') || 5);
-  const puzzles = await fetchLichessPuzzles(theme, Math.min(count, 10));
-  return sendJson(res, 200, puzzles);
+async function handlePuzzle(url, res) {
+  const mappedTheme = resolvePuzzleTheme(url.searchParams.get('theme') || 'short');
+  const [payload] = await fetchLichessPuzzles(mappedTheme, 1);
+  return sendJson(res, 200, normalizePuzzlePayload(payload));
+}
+
+function handlePuzzleProgress(url, res) {
+  const userKey = (url.searchParams.get('userKey') || 'guest').trim();
+  const pattern = (url.searchParams.get('pattern') || 'short').trim();
+  return sendJson(res, 200, getPuzzleProgress(userKey, pattern));
+}
+
+async function handlePuzzleProgressUpdate(req, res) {
+  const body = await readJsonBody(req);
+  const userKey = (body.userKey || 'guest').trim();
+  const pattern = (body.pattern || 'short').trim();
+  const solved = Boolean(body.solved);
+  const tries = Number(body.tries || 1);
+  const timeSpent = Number(body.timeSpent || 0);
+  const progress = recordPuzzleAttempt({ userKey, pattern, solved, tries, timeSpent });
+  return sendJson(res, 200, progress);
 }
 
 function filterByDate(games, dateFrom, dateTo) {

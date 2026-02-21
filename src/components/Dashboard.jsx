@@ -1,4 +1,10 @@
-export default function Dashboard({ games, patterns, onSelectGame, onNavigateToPuzzles }) {
+export default function Dashboard({
+  games,
+  patterns,
+  puzzleProgressByPattern,
+  onSelectGame,
+  onNavigateToPuzzles,
+}) {
   const totalGames = games.length;
   const wins = games.filter(g => g.result === 'win').length;
   const losses = games.filter(g => g.result === 'loss').length;
@@ -10,13 +16,13 @@ export default function Dashboard({ games, patterns, onSelectGame, onNavigateToP
   const avgEndgame = totalGames > 0
     ? Math.round(games.reduce((sum, g) => sum + (g.analysis?.phases?.endgame || 0), 0) / totalGames)
     : 0;
+  const aggregatePuzzleProgress = summarizePuzzleProgress(puzzleProgressByPattern);
 
   const colorForAccuracy = (val) =>
     val > 70 ? 'var(--accent-green)' : val > 55 ? 'var(--accent-amber)' : 'var(--accent-red)';
 
   return (
     <div className="dashboard">
-      {/* Stat Cards */}
       <div className="stat-cards">
         <div className="stat-card animate-in delay-1">
           <div className="stat-label">Games Analyzed</div>
@@ -48,7 +54,12 @@ export default function Dashboard({ games, patterns, onSelectGame, onNavigateToP
         </div>
       </div>
 
-      {/* Patterns Panel */}
+      <div className="stat-cards" style={{ marginTop: 16 }}>
+        <Widget title="Puzzle Completed" value={aggregatePuzzleProgress.completedCount} detail="Theme-targeted solves" />
+        <Widget title="Puzzle Streak" value={aggregatePuzzleProgress.streak} detail={`Best: ${aggregatePuzzleProgress.bestStreak}`} />
+        <Widget title="Puzzle Accuracy" value={`${aggregatePuzzleProgress.accuracy}%`} detail={`${aggregatePuzzleProgress.attempts} attempts`} />
+      </div>
+
       <div className="panel animate-in delay-2">
         <div className="panel-header">
           <h3>🎯 Detected Patterns</h3>
@@ -85,7 +96,6 @@ export default function Dashboard({ games, patterns, onSelectGame, onNavigateToP
         ))}
       </div>
 
-      {/* Recent Games */}
       <div className="panel animate-in delay-3">
         <div className="panel-header">
           <h3>📋 Recent Games</h3>
@@ -115,4 +125,33 @@ export default function Dashboard({ games, patterns, onSelectGame, onNavigateToP
       </div>
     </div>
   );
+}
+
+function Widget({ title, value, detail }) {
+  return (
+    <div className="stat-card animate-in">
+      <div className="stat-label">{title}</div>
+      <div className="stat-value">{value}</div>
+      <div className="stat-detail">{detail}</div>
+    </div>
+  );
+}
+
+function summarizePuzzleProgress(progressByPattern = {}) {
+  const values = Object.values(progressByPattern);
+  if (values.length === 0) {
+    return { completedCount: 0, streak: 0, bestStreak: 0, accuracy: 0, attempts: 0 };
+  }
+
+  const aggregate = values.reduce((sum, entry) => ({
+    completedCount: sum.completedCount + (entry.completedCount || 0),
+    attempts: sum.attempts + (entry.attempts || 0),
+    streak: Math.max(sum.streak, entry.streak || 0),
+    bestStreak: Math.max(sum.bestStreak, entry.bestStreak || 0),
+  }), { completedCount: 0, attempts: 0, streak: 0, bestStreak: 0 });
+
+  return {
+    ...aggregate,
+    accuracy: aggregate.attempts > 0 ? Math.round((aggregate.completedCount / aggregate.attempts) * 100) : 0,
+  };
 }
