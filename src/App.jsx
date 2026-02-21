@@ -6,16 +6,19 @@
 // analysis engine, coach voice).
 // ═══════════════════════════════════════════
 
-import { useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import SetupScreen from './components/SetupScreen';
 import LoadingScreen from './components/LoadingScreen';
 import Dashboard from './components/Dashboard';
 import GameReview from './components/GameReview';
 import PuzzleTrainer from './components/PuzzleTrainer';
+import LoginScreen from './components/LoginScreen';
 import { getRecentGames as getChesscomGames } from './services/chesscom-api';
 import { getRecentGames as getLichessGames } from './services/lichess-api';
 import { analyzeGame, detectPatterns } from './services/analysis';
 import { getPuzzleProgress, updatePuzzleProgress } from './services/puzzles';
+import { isAuthConfigured, logoutUser, subscribeToAuthState } from './services/auth';
+import { listAnalysisRuns, recordAnalysisRun } from './services/analysis-history';
 
 function App() {
   // ─── State ───
@@ -30,7 +33,20 @@ function App() {
   const [error, setError] = useState(null);
   const [usernames, setUsernames] = useState({ chesscom: '', lichess: '' });
   const [puzzleProgressByPattern, setPuzzleProgressByPattern] = useState({});
+  const [authUser, setAuthUser] = useState(null);
+  const [analysisRuns, setAnalysisRuns] = useState([]);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthState((user) => {
+      setAuthUser(user);
+      if (getAuthUserId(user)) {
+        setAnalysisRuns(listAnalysisRuns(getAuthUserId(user)));
+      } else {
+        setAnalysisRuns([]);
+      }
+    });
+    return unsubscribe;
+  }, []);
 
 
   const hydratePuzzleProgress = useCallback(async (detectedPatterns, nextUsernames) => {
@@ -127,6 +143,16 @@ function App() {
       await new Promise(r => setTimeout(r, 600));
 
       const resolvedPatterns = detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns();
+      const authUserId = getAuthUserId(authUser);
+      if (authUserId) {
+        recordAnalysisRun({
+          userId: authUserId,
+          usernames: { chesscom: chesscomUser, lichess: lichessUser },
+          games: allGames,
+          patterns: resolvedPatterns,
+        });
+        setAnalysisRuns(listAnalysisRuns(authUserId));
+      }
       setGames(allGames);
       setPatterns(resolvedPatterns);
       await hydratePuzzleProgress(resolvedPatterns, { chesscom: chesscomUser, lichess: lichessUser });
@@ -138,7 +164,7 @@ function App() {
       setError(`Something went wrong: ${err.message}. Please try again.`);
       setScreen('setup');
     }
-  }, [hydratePuzzleProgress]);
+  }, [authUser, hydratePuzzleProgress]);
 
   // ─── Navigation ───
   const handleSelectGame = (game) => {
@@ -173,7 +199,13 @@ function App() {
     return progress;
   }, [usernames]);
 
-  const showNav = screen !== 'setup' && screen !== 'loading';
+  const showNav = authUser && screen !== 'setup' && screen !== 'loading';
+  const requiresAuth = isAuthConfigured() && !authUser;
+
+  const handleLogout = async () => {
+    await logoutUser();
+    setScreen('setup');
+  };
 
   return (
     <>
@@ -197,31 +229,36 @@ function App() {
             >
               Train
             </button>
+            <button onClick={handleLogout}>Logout</button>
           </nav>
         )}
       </header>
 
       {/* Main Content */}
       <div className="app-container">
-        {screen === 'setup' && (
+        {requiresAuth && (
+          <LoginScreen onLoginSuccess={() => setError(null)} onError={setError} />
+        )}
+        {!requiresAuth && screen === 'setup' && (
           <SetupScreen onSubmit={startAnalysis} error={error} />
         )}
-        {screen === 'loading' && (
+        {!requiresAuth && screen === 'loading' && (
           <LoadingScreen step={loadingStep} message={loadingMessage} />
         )}
-        {screen === 'dashboard' && (
+        {!requiresAuth && screen === 'dashboard' && (
           <Dashboard
             games={games}
             patterns={patterns}
+            analysisRuns={analysisRuns}
             puzzleProgressByPattern={puzzleProgressByPattern}
             onSelectGame={handleSelectGame}
             onNavigateToPuzzles={handleNavigateToPuzzles}
           />
         )}
-        {screen === 'review' && selectedGame && (
+        {!requiresAuth && screen === 'review' && selectedGame && (
           <GameReview game={selectedGame} onBack={goToDashboard} />
         )}
-        {screen === 'puzzles' && (
+        {!requiresAuth && screen === 'puzzles' && (
           <PuzzleTrainer
             pattern={selectedPattern}
             patterns={patterns}
@@ -264,6 +301,10 @@ function getDefaultPatterns() {
       puzzleTheme: 'short',
     }
   ];
+}
+
+function getAuthUserId(user) {
+  return user?.id || user?.uid || null;
 }
 
 export default App;
