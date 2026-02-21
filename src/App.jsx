@@ -159,7 +159,7 @@ function App() {
       await new Promise((r) => setTimeout(r, 600));
 
       const resolvedPatterns = detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns();
-      const shouldRefreshInBackground = shouldRunBackgroundRefresh(engineMode, initialMode);
+      const shouldRefreshInBackground = shouldRunBackgroundRefresh(engineMode, initialMode, allGames);
       const authUserId = getAuthUserId(authUser);
       if (authUserId && !shouldRefreshInBackground) {
         recordAnalysisRun({
@@ -180,7 +180,7 @@ function App() {
         setTimeout(() => {
           refreshAnalysisInBackground({
             games: allGames,
-            engineMode,
+            engineMode: resolveRefreshMode(engineMode, allGames),
             authUser,
             usernames: { chesscom: chesscomUser, lichess: lichessUser },
             setGames,
@@ -229,6 +229,25 @@ function App() {
     setPuzzleProgressByPattern((current) => ({ ...current, [pattern]: progress }));
     return progress;
   }, [usernames]);
+
+
+  const handleReanalyzeGames = useCallback(async () => {
+    if (!games.length || analysisProgress.active) {
+      return;
+    }
+
+    await refreshAnalysisInBackground({
+      games,
+      engineMode: resolveRefreshMode('auto', games),
+      forceRefresh: true,
+      authUser,
+      usernames,
+      setGames,
+      setPatterns,
+      setAnalysisRuns,
+      setAnalysisProgress,
+    });
+  }, [analysisProgress.active, authUser, games, usernames]);
 
   const showNav = authUser && screen !== 'setup' && screen !== 'loading';
   const requiresAuth = isAuthConfigured() && !authUser;
@@ -295,10 +314,17 @@ function App() {
             puzzleProgressByPattern={puzzleProgressByPattern}
             onSelectGame={handleSelectGame}
             onNavigateToPuzzles={handleNavigateToPuzzles}
+            onReanalyzeGames={handleReanalyzeGames}
+            analysisInProgress={analysisProgress.active}
           />
         )}
         {!requiresAuth && screen === 'review' && selectedGame && (
-          <GameReview game={selectedGame} onBack={goToDashboard} />
+          <GameReview
+            game={selectedGame}
+            onBack={goToDashboard}
+            onReanalyzeGames={handleReanalyzeGames}
+            analysisInProgress={analysisProgress.active}
+          />
         )}
         {!requiresAuth && screen === 'puzzles' && (
           <PuzzleTrainer
@@ -416,25 +442,29 @@ function getInitialAnalysisMode(engineMode) {
   return engineMode;
 }
 
-function shouldRunBackgroundRefresh(engineMode, initialMode) {
-  return engineMode === 'auto' && initialMode !== engineMode;
+function shouldRunBackgroundRefresh(engineMode, initialMode, games) {
+  if (engineMode === 'auto' && initialMode !== engineMode) return true;
+  return games.some((game) => deriveAnalysisStatus(game.analysis) === 'fallback-material');
 }
 
-async function analyzeGamesSequentially({ games, mode, onProgress = () => {} }) {
+async function analyzeGamesSequentially({ games, mode, onProgress = () => {}, forceRefresh = false }) {
   for (let i = 0; i < games.length; i += 1) {
     const game = games[i];
     if (!game.pgn) {
       game.analysis = createFallbackAnalysis(i);
+      game.analysisStatus = 'fallback-material';
       onProgress({ index: i, total: games.length, opponent: game.opponent || 'Unknown' });
       continue;
     }
 
     onProgress({ index: i, total: games.length, opponent: game.opponent || 'Unknown' });
     try {
-      game.analysis = await analyzeGame(game.pgn, game.playerColor, mode);
+      game.analysis = await analyzeGame(game.pgn, game.playerColor, mode, { forceRefresh });
+      game.analysisStatus = deriveAnalysisStatus(game.analysis);
     } catch (err) {
       console.warn(`Analysis failed for game ${i}:`, err.message);
       game.analysis = createFallbackAnalysis(i);
+      game.analysisStatus = 'fallback-material';
     }
   }
 }
@@ -448,6 +478,7 @@ async function refreshAnalysisInBackground({
   setPatterns,
   setAnalysisRuns,
   setAnalysisProgress,
+  forceRefresh = false,
 }) {
   const refreshedGames = games.map((game) => ({ ...game }));
   setAnalysisProgress({ active: true, completed: 0, total: refreshedGames.length });
@@ -455,12 +486,14 @@ async function refreshAnalysisInBackground({
   for (let i = 0; i < refreshedGames.length; i += 1) {
     const game = refreshedGames[i];
     if (!game.pgn) {
+      game.analysisStatus = 'fallback-material';
       setAnalysisProgress({ active: true, completed: i + 1, total: refreshedGames.length });
       continue;
     }
 
     try {
-      game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode);
+      game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode, { forceRefresh });
+      game.analysisStatus = deriveAnalysisStatus(game.analysis);
       setGames([...refreshedGames]);
       setPatterns(resolvePatterns(refreshedGames));
     } catch (err) {
@@ -490,6 +523,27 @@ async function refreshAnalysisInBackground({
 function resolvePatterns(games) {
   const detectedPatterns = detectPatterns(games);
   return detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns();
+}
+
+
+
+function resolveRefreshMode(engineMode, games) {
+  const hasFallbackGames = games.some((game) => deriveAnalysisStatus(game.analysis) === 'fallback-material');
+  if (hasFallbackGames) return 'auto';
+  return engineMode;
+}
+
+function deriveAnalysisStatus(analysis) {
+  if (!analysis || !Array.isArray(analysis.moves) || analysis.moves.length === 0) {
+    return 'fallback-material';
+  }
+
+  const quality = analysis.quality;
+  if (!quality) return 'complete';
+  if (quality.primarySource === 'material' || quality.needsRefinement) {
+    return 'fallback-material';
+  }
+  return 'complete';
 }
 
 function splitPgnGames(text) {

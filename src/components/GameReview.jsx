@@ -1,18 +1,26 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { generateCoachComment, generateGameSummary } from '../services/coach';
+import { analyzePosition } from '../services/analysis';
 
-export default function GameReview({ game, onBack }) {
+export default function GameReview({ game, onBack, onReanalyzeGames, analysisInProgress = false }) {
   const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
+  const [engineLine, setEngineLine] = useState([]);
+  const [engineLineError, setEngineLineError] = useState('');
+  const [engineLineLoading, setEngineLineLoading] = useState(false);
+  const [enginePreviewIndex, setEnginePreviewIndex] = useState(-1);
 
   const moves = game.analysis?.moves || [];
   const hasMoves = moves.length > 0;
 
   // Current position
   const currentMove = currentMoveIndex >= 0 ? moves[currentMoveIndex] : null;
-  const currentFen = currentMove
+  const baseFen = currentMove
     ? currentMove.fenAfter
     : 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const previewFen = enginePreviewIndex >= 0 ? buildPreviewFen(baseFen, engineLine, enginePreviewIndex) : null;
+  const currentFen = previewFen || baseFen;
   const currentEval = currentMove ? currentMove.eval : 0;
 
   // Coach commentary
@@ -31,6 +39,33 @@ export default function GameReview({ game, onBack }) {
   const evalDisplay = currentEval > 0 ? `+${currentEval.toFixed(1)}` : currentEval.toFixed(1);
 
   // Classification styling
+
+  useEffect(() => {
+    setEngineLine([]);
+    setEngineLineError('');
+    setEnginePreviewIndex(-1);
+  }, [currentMoveIndex, game.id]);
+
+  const fetchEngineLine = async () => {
+    setEngineLineLoading(true);
+    setEngineLineError('');
+    try {
+      const result = await analyzePosition(baseFen, {
+        engineMode: 'auto',
+        maxPlies: 6,
+        forceRefresh: true,
+      });
+      setEngineLine(result.line || []);
+      setEnginePreviewIndex(-1);
+    } catch (error) {
+      setEngineLineError(error.message || 'Failed to fetch engine line');
+      setEngineLine([]);
+      setEnginePreviewIndex(-1);
+    } finally {
+      setEngineLineLoading(false);
+    }
+  };
+
   const classMap = {
     brilliant: 'class-brilliant', best: 'class-best', excellent: 'class-excellent',
     great: 'class-great', good: 'class-good',
@@ -177,10 +212,32 @@ export default function GameReview({ game, onBack }) {
             </span>
             {currentMove && (
               <span style={{ fontSize: 13, color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}>
-                {currentMove.san}
+                {currentMove.san} · Δ {formatEvalDelta(currentMove.evalSwing)} · {formatEvalSource(currentMove.evalSource)}
               </span>
             )}
           </div>
+
+          {game.analysisStatus === 'fallback-material' && (
+            <div style={{
+              marginTop: 10,
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--accent-amber-dim)',
+              color: 'var(--accent-amber)',
+              fontSize: 12,
+            }}>
+              ⚠️ This game used limited engine depth for parts of analysis. Re-run analysis for stronger move-by-move feedback.
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="back-btn"
+                  onClick={onReanalyzeGames}
+                  disabled={analysisInProgress}
+                >
+                  {analysisInProgress ? 'Engine running…' : 'Re-run Engine Analysis'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Coach bubble */}
           <div className="coach-bubble">
@@ -193,6 +250,36 @@ export default function GameReview({ game, onBack }) {
               }}>
                 💡 <strong>Tip:</strong> {coaching.tip}
               </div>
+            )}
+          </div>
+
+
+          <div className="move-list-panel" style={{ marginBottom: 12 }}>
+            <div className="panel-header">
+              <h3>🧭 Engine Next Line</h3>
+              <button className="back-btn" onClick={fetchEngineLine} disabled={engineLineLoading}>
+                {engineLineLoading ? 'Analyzing…' : 'Analyze Current Position'}
+              </button>
+            </div>
+            {engineLineError && <div className="pattern-desc" style={{ color: 'var(--accent-red)' }}>{engineLineError}</div>}
+            {engineLine.length === 0 && !engineLineLoading && !engineLineError && (
+              <div className="pattern-desc">Run engine line analysis to view best continuation moves from this position.</div>
+            )}
+            {engineLine.length > 0 && (
+              <>
+                <div className="move-nav" style={{ marginBottom: 10 }}>
+                  <button onClick={() => setEnginePreviewIndex(-1)}>⟨⟨</button>
+                  <button onClick={() => setEnginePreviewIndex((idx) => Math.max(-1, idx - 1))}>⟨</button>
+                  <span style={{ padding: '8px 12px', fontSize: 12, color: 'var(--text-muted)' }}>
+                    {enginePreviewIndex >= 0 ? `Preview ply ${enginePreviewIndex + 1}` : 'Preview start'}
+                  </span>
+                  <button onClick={() => setEnginePreviewIndex((idx) => Math.min(engineLine.length - 1, idx + 1))}>⟩</button>
+                  <button onClick={() => setEnginePreviewIndex(engineLine.length - 1)}>⟩⟩</button>
+                </div>
+                <div className="pattern-desc" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                  {engineLine.map((step) => `${step.ply}. ${step.san} (${formatEval(step.eval)})`).join(' · ')}
+                </div>
+              </>
             )}
           </div>
 
@@ -251,4 +338,36 @@ export default function GameReview({ game, onBack }) {
       </div>
     </div>
   );
+}
+
+
+function formatEvalDelta(value) {
+  const rounded = Number(value || 0).toFixed(1);
+  return rounded.startsWith('-') ? rounded : `+${rounded}`;
+}
+
+function buildPreviewFen(startFen, line, previewIndex) {
+  const chess = new Chess(startFen);
+  for (let i = 0; i <= previewIndex; i += 1) {
+    const step = line[i];
+    if (!step) break;
+    const match = String(step.uci || '').match(/^([a-h][1-8])([a-h][1-8])([qrbn])?$/);
+    if (!match) break;
+    const [, from, to, promotion] = match;
+    const moved = chess.move({ from, to, promotion });
+    if (!moved) break;
+  }
+  return chess.fen();
+}
+
+function formatEval(value) {
+  const rounded = Number(value || 0).toFixed(1);
+  return rounded.startsWith('-') ? rounded : `+${rounded}`;
+}
+
+function formatEvalSource(source) {
+  if (source === 'engine-local') return 'local engine';
+  if (source === 'engine-web') return 'web engine';
+  if (source === 'material') return 'material fallback';
+  return 'unknown source';
 }

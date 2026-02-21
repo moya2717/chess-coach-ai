@@ -5,7 +5,7 @@
 import { Chess } from 'chess.js';
 import { apiPost } from './api-client';
 
-export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto') {
+export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto', options = {}) {
   const chess = new Chess();
   try {
     chess.loadPgn(pgn);
@@ -18,7 +18,22 @@ export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto
     playerColor,
     cacheKey: buildAnalysisCacheKey({ pgn, headers: chess.header(), playerColor, engineMode }),
     engineMode,
+    forceRefresh: Boolean(options.forceRefresh),
   }, { timeout: 120000 });
+}
+
+
+export async function analyzePosition(fen, { engineMode = 'auto', maxPlies = 6, forceRefresh = false } = {}) {
+  if (!fen) {
+    throw new Error('FEN is required');
+  }
+
+  return apiPost('/api/analyze-position', {
+    fen,
+    engineMode,
+    maxPlies,
+    forceRefresh,
+  }, { timeout: 45000 });
 }
 
 export function buildAnalysisCacheKey({ pgn, headers = {}, playerColor = 'white', engineMode = 'auto' }) {
