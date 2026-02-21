@@ -51,7 +51,7 @@ async function fetchArchives(username) {
   }
 }
 
-function processChessComGame(rawGame, username, index) {
+export function processChessComGame(rawGame, username, index) {
   const isWhite = rawGame.white?.username?.toLowerCase() === username.toLowerCase();
   const playerColor = isWhite ? 'white' : 'black';
   const opponent = isWhite ? rawGame.black : rawGame.white;

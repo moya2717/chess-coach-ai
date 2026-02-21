@@ -1,0 +1,29 @@
+[
+  {
+    "id": "game-1",
+    "analysis": {
+      "moves": [1, 2, 3],
+      "blunders": 2,
+      "inaccuracies": 4,
+      "phases": { "opening": 62, "middlegame": 71, "endgame": 49 }
+    }
+  },
+  {
+    "id": "game-2",
+    "analysis": {
+      "moves": [1, 2, 3],
+      "blunders": 1,
+      "inaccuracies": 3,
+      "phases": { "opening": 65, "middlegame": 69, "endgame": 45 }
+    }
+  },
+  {
+    "id": "game-3",
+    "analysis": {
+      "moves": [1, 2, 3],
+      "blunders": 0,
+      "inaccuracies": 2,
+      "phases": { "opening": 67, "middlegame": 72, "endgame": 50 }
+    }
+  }
+]
