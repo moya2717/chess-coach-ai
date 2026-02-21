@@ -50,7 +50,7 @@ function App() {
     const unsubscribe = subscribeToAuthState((user) => {
       setAuthUser(user);
       if (getAuthUserId(user)) {
-        setAnalysisRuns(listAnalysisRuns(getAuthUserId(user)));
+        listAnalysisRuns(getAuthUserId(user)).then(setAnalysisRuns).catch(() => setAnalysisRuns([]));
       } else {
         setAnalysisRuns([]);
       }
@@ -161,13 +161,13 @@ function App() {
       const resolvedPatterns = detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns();
       const authUserId = getAuthUserId(authUser);
       if (authUserId) {
-        recordAnalysisRun({
+        await recordAnalysisRun({
           userId: authUserId,
           usernames: { chesscom: chesscomUser, lichess: lichessUser },
           games: allGames,
           patterns: resolvedPatterns,
         });
-        setAnalysisRuns(listAnalysisRuns(authUserId));
+        setAnalysisRuns(await listAnalysisRuns(authUserId));
       }
       setGames(allGames);
       setPatterns(resolvedPatterns);
@@ -233,7 +233,7 @@ function App() {
     });
   }, [analysisProgress.active, authUser, games, preferredEngineMode, usernames]);
 
-  const persistAnalyzedGame = useCallback((gameId, analysis) => {
+  const persistAnalyzedGame = useCallback(async (gameId, analysis) => {
     const nextGames = games.map((game) => (
       game.id === gameId
         ? { ...game, analysis, analysisStatus: deriveAnalysisStatus(analysis) }
@@ -245,8 +245,8 @@ function App() {
 
     const authUserId = getAuthUserId(authUser);
     if (authUserId) {
-      recordAnalysisRun({ userId: authUserId, usernames, games: nextGames, patterns: resolvedPatterns });
-      setAnalysisRuns(listAnalysisRuns(authUserId));
+      await recordAnalysisRun({ userId: authUserId, usernames, games: nextGames, patterns: resolvedPatterns });
+      setAnalysisRuns(await listAnalysisRuns(authUserId));
     }
   }, [authUser, games, usernames]);
 
@@ -268,11 +268,11 @@ function App() {
       const analysis = hasAnalyzedMoves(result)
         ? result
         : buildMaterialFallbackAnalysisFromPgn(target.pgn, target.playerColor);
-      persistAnalyzedGame(gameId, analysis);
+      await persistAnalyzedGame(gameId, analysis);
     } catch (err) {
       console.warn('Manual game analysis failed:', err.message);
       const fallbackAnalysis = buildMaterialFallbackAnalysisFromPgn(target.pgn, target.playerColor);
-      persistAnalyzedGame(gameId, fallbackAnalysis);
+      await persistAnalyzedGame(gameId, fallbackAnalysis);
       setError(`Engine unavailable right now. Loaded material-based move review for this game.`);
     } finally {
       setActiveAnalysisGameId(null);
@@ -623,13 +623,13 @@ async function refreshAnalysisInBackground({
 
   const authUserId = getAuthUserId(authUser);
   if (authUserId) {
-    recordAnalysisRun({
+    await recordAnalysisRun({
       userId: authUserId,
       usernames,
       games: refreshedGames,
       patterns: resolvedPatterns,
     });
-    setAnalysisRuns(listAnalysisRuns(authUserId));
+    setAnalysisRuns(await listAnalysisRuns(authUserId));
   }
 
   setAnalysisProgress((prev) => ({ ...prev, active: false }));

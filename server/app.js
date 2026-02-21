@@ -15,6 +15,7 @@ import {
 import { enqueueAnalysisJob, getAnalysisJob } from './services/analysis-jobs.js';
 import { buildMoveCoachExplanation } from './services/coach-explanations.js';
 import { buildPatternClusters } from './services/pattern-clusters.js';
+import { createPersistedAnalysisRun, listPersistedAnalysisRuns } from './services/analysis-runs-store.js';
 
 const gameCache = new TTLCache(3 * 60_000);
 const evalCache = new TTLCache(5 * 60_000);
@@ -36,6 +37,8 @@ export function createHandler() {
       if (req.method === 'POST' && url.pathname === '/api/puzzle-plan') return handlePuzzlePlan(req, res);
       if (req.method === 'POST' && url.pathname === '/api/coach-explain') return handleCoachExplain(req, res);
       if (req.method === 'POST' && url.pathname === '/api/pattern-clusters') return handlePatternClusters(req, res);
+      if (req.method === 'GET' && url.pathname === '/api/analysis-runs') return handleAnalysisRunsList(url, res);
+      if (req.method === 'POST' && url.pathname === '/api/analysis-runs') return handleAnalysisRunsCreate(req, res);
       return sendJson(res, 404, { code: 'NOT_FOUND', message: 'Route not found', retryable: false });
     } catch (error) {
       const normalized = normalizeUnknownError(error);
@@ -214,6 +217,34 @@ async function handlePuzzleProgressUpdate(req, res) {
   return sendJson(res, 200, progress);
 }
 
+
+
+function handleAnalysisRunsList(url, res) {
+  const userId = (url.searchParams.get('userId') || '').trim();
+  if (!userId) {
+    return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'userId is required', retryable: false });
+  }
+
+  return listPersistedAnalysisRuns(userId)
+    .then((runs) => sendJson(res, 200, runs))
+    .catch(() => sendJson(res, 500, { code: 'INTERNAL_ERROR', message: 'Could not load analysis runs', retryable: true }));
+}
+
+async function handleAnalysisRunsCreate(req, res) {
+  const body = await readJsonBody(req);
+  const userId = (body.userId || '').trim();
+  if (!userId) {
+    return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'userId is required', retryable: false });
+  }
+
+  const run = await createPersistedAnalysisRun({
+    userId,
+    usernames: body.usernames || {},
+    games: Array.isArray(body.games) ? body.games : [],
+    patterns: Array.isArray(body.patterns) ? body.patterns : [],
+  });
+  return sendJson(res, 201, run);
+}
 function filterByDate(games, dateFrom, dateTo) {
   if (!dateFrom && !dateTo) return games;
   return games.filter((game) => {
