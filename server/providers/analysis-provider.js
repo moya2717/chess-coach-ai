@@ -55,6 +55,10 @@ export async function analyzePositionWithContext(fen, engineMode = 'auto', optio
 }
 
 export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMode = 'auto', options = {}) {
+  if (engineMode === 'python') {
+    return analyzeGameWithPythonBridge(pgn, playerColor, options);
+  }
+
   const chess = new Chess();
   chess.loadPgn(pgn);
 
@@ -101,6 +105,46 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
     },
     quality: summarizeAnalysisQuality(analyzedMoves),
   };
+}
+
+async function analyzeGameWithPythonBridge(pgn, playerColor, options = {}) {
+  try {
+    const payload = await runPythonAnalyzer(pgn, playerColor, options);
+    if (payload && Array.isArray(payload.moves) && payload.moves.length > 0) {
+      return normalizePythonPayload(payload);
+    }
+  } catch {
+    // Fall through to JS analysis fallback for reliability.
+  }
+
+  return analyzeGameWithEngine(pgn, playerColor, 'local', options);
+}
+
+function normalizePythonPayload(payload) {
+  return {
+    ...payload,
+    quality: payload.quality || {
+      primarySource: 'python-material',
+      engineShare: 0,
+      materialShare: 100,
+      needsRefinement: true,
+    },
+  };
+}
+
+async function runPythonAnalyzer(pgn, playerColor, options = {}) {
+  const scriptPath = new URL('../python/chesscom_analyzer_bridge.py', import.meta.url);
+  const request = JSON.stringify({
+    pgn,
+    playerColor,
+    depth: Number(options.depth || 12),
+  });
+  const { stdout } = await execFileAsync('python3', [scriptPath], {
+    input: request,
+    timeout: 15000,
+    maxBuffer: 1024 * 1024,
+  });
+  return JSON.parse(stdout);
 }
 
 async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor, engineMode, options = {}) {

@@ -12,6 +12,9 @@ import {
   recordPuzzleAttempt,
   resolvePuzzleTheme,
 } from './services/puzzle-service.js';
+import { enqueueAnalysisJob, getAnalysisJob } from './services/analysis-jobs.js';
+import { buildMoveCoachExplanation } from './services/coach-explanations.js';
+import { buildPatternClusters } from './services/pattern-clusters.js';
 
 const gameCache = new TTLCache(3 * 60_000);
 const evalCache = new TTLCache(5 * 60_000);
@@ -24,11 +27,15 @@ export function createHandler() {
       if (req.method === 'GET' && url.pathname === '/api/profile') return handleProfile(url, res);
       if (req.method === 'GET' && url.pathname === '/api/stats') return handleStats(url, res);
       if (req.method === 'POST' && url.pathname === '/api/analyze') return handleAnalyze(req, res);
+      if (req.method === 'POST' && url.pathname === '/api/analyze-jobs') return handleAnalyzeJobsCreate(req, res);
+      if (req.method === 'GET' && url.pathname === '/api/analyze-jobs') return handleAnalyzeJobsStatus(url, res);
       if (req.method === 'POST' && url.pathname === '/api/analyze-position') return handleAnalyzePosition(req, res);
       if (req.method === 'GET' && url.pathname === '/api/puzzle') return handlePuzzle(url, res);
       if (req.method === 'GET' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgress(url, res);
       if (req.method === 'POST' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgressUpdate(req, res);
       if (req.method === 'POST' && url.pathname === '/api/puzzle-plan') return handlePuzzlePlan(req, res);
+      if (req.method === 'POST' && url.pathname === '/api/coach-explain') return handleCoachExplain(req, res);
+      if (req.method === 'POST' && url.pathname === '/api/pattern-clusters') return handlePatternClusters(req, res);
       return sendJson(res, 404, { code: 'NOT_FOUND', message: 'Route not found', retryable: false });
     } catch (error) {
       const normalized = normalizeUnknownError(error);
@@ -103,6 +110,47 @@ async function handleAnalyze(req, res) {
 
 
 
+
+
+async function handleAnalyzeJobsCreate(req, res) {
+  const body = await readJsonBody(req);
+  if (!body.pgn) {
+    return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'pgn is required', retryable: false });
+  }
+
+  const job = enqueueAnalysisJob({
+    pgn: body.pgn,
+    playerColor: body.playerColor || 'white',
+    engineMode: body.engineMode || 'auto',
+  });
+  return sendJson(res, 202, job);
+}
+
+function handleAnalyzeJobsStatus(url, res) {
+  const id = (url.searchParams.get('id') || '').trim();
+  if (!id) {
+    return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'id is required', retryable: false });
+  }
+
+  const job = getAnalysisJob(id);
+  if (!job) {
+    return sendJson(res, 404, { code: 'NOT_FOUND', message: 'analysis job not found', retryable: false });
+  }
+
+  return sendJson(res, 200, job);
+}
+
+async function handleCoachExplain(req, res) {
+  const body = await readJsonBody(req);
+  const explanation = buildMoveCoachExplanation(body);
+  return sendJson(res, 200, explanation);
+}
+
+async function handlePatternClusters(req, res) {
+  const body = await readJsonBody(req);
+  const payload = await buildPatternClusters(body.games || []);
+  return sendJson(res, 200, payload);
+}
 async function handleAnalyzePosition(req, res) {
   const body = await readJsonBody(req);
   const {
