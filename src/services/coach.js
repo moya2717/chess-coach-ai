@@ -34,7 +34,7 @@
  * @returns {Object} { classification, text, tip }
  */
 export function generateCoachComment(move, context = {}) {
-  const { san, evalDrop, classification, phase, isPlayerMove, fenAfter } = move;
+  const { san, evalDrop, classification, phase, isPlayerMove, bestMove, playerMatchedBestMove } = move;
 
   // If it's not the player's move, give a brief comment about the opponent
   if (!isPlayerMove) {
@@ -53,8 +53,14 @@ export function generateCoachComment(move, context = {}) {
       return generateMistakeComment(san, evalDrop, phase, context);
     case 'inaccuracy':
       return generateInaccuracyComment(san, evalDrop, phase, context);
+    case 'best':
+      return generateBestMoveComment(san, phase, context);
+    case 'excellent':
+      return generateExcellentMoveComment(san, phase, context);
     case 'great':
       return generateGreatMoveComment(san, phase, context);
+    case 'book':
+      return generateBookMoveComment(san, bestMove, playerMatchedBestMove, phase);
     default:
       return generateGoodMoveComment(san, phase, context);
   }
@@ -75,7 +81,7 @@ function generateBlunderComment(san, evalDrop, phase, context) {
 
   return {
     classification: 'blunder',
-    text: `<strong>${san}</strong> is a serious blunder (evaluation dropped by ${evalDrop.toFixed(1)} pawns). ${analogies[Math.floor(Math.random() * analogies.length)]}`,
+    text: `<strong>${san}</strong> is a serious blunder (evaluation dropped by ${evalDrop.toFixed(1)} pawns). ${pickDeterministic(analogies, san)}`,
     tip: tips[phase] || tips.middlegame,
   };
 }
@@ -95,7 +101,7 @@ function generateMistakeComment(san, evalDrop, phase, context) {
 
   return {
     classification: 'mistake',
-    text: `<strong>${san}</strong> is a mistake that gives up some of your advantage. ${analogies[Math.floor(Math.random() * analogies.length)]}`,
+    text: `<strong>${san}</strong> is a mistake that gives up some of your advantage. ${pickDeterministic(analogies, san)}`,
     tip: tips[phase] || tips.middlegame,
   };
 }
@@ -110,6 +116,22 @@ function generateInaccuracyComment(san, evalDrop, phase, context) {
   };
 }
 
+function generateBestMoveComment(san, phase, context) {
+  return {
+    classification: 'best',
+    text: `<strong>${san}</strong> is the top engine choice in this position — this is best-move level precision.`,
+    tip: null,
+  };
+}
+
+function generateExcellentMoveComment(san, phase, context) {
+  return {
+    classification: 'excellent',
+    text: `<strong>${san}</strong> is an excellent move that keeps nearly all of your advantage while improving piece coordination.`,
+    tip: null,
+  };
+}
+
 function generateGreatMoveComment(san, phase, context) {
   const compliments = [
     `Excellent move! You found the engine's top choice.`,
@@ -120,8 +142,23 @@ function generateGreatMoveComment(san, phase, context) {
 
   return {
     classification: 'great',
-    text: `<strong>${san}</strong> — ${compliments[Math.floor(Math.random() * compliments.length)]} Keep trusting this kind of thinking.`,
+    text: `<strong>${san}</strong> — ${pickDeterministic(compliments, `${san}-${phase}`)} Keep trusting this kind of thinking.`,
     tip: null,
+  };
+}
+
+function generateBookMoveComment(san, bestMove, playerMatchedBestMove, phase) {
+  const bestMoveHint = bestMove
+    ? ` Engine reference move was <strong>${bestMove}</strong>.`
+    : '';
+  const lineNote = playerMatchedBestMove
+    ? ' You followed the strongest known continuation.'
+    : ' This keeps you in well-known territory.';
+
+  return {
+    classification: 'book',
+    text: `<strong>${san}</strong> follows opening principles and keeps the position balanced.${lineNote}${bestMoveHint}`,
+    tip: phase === 'opening' ? 'Use your opening prep to reach familiar middlegames, then slow down and calculate.' : null,
   };
 }
 
@@ -131,6 +168,13 @@ function generateGoodMoveComment(san, phase, context) {
     text: `<strong>${san}</strong> is a solid, reasonable move. You're maintaining your position well — not every move needs to be a firework. Consistency is what separates improving players from stagnant ones.`,
     tip: null,
   };
+}
+
+function pickDeterministic(options, seed) {
+  const hash = String(seed || '')
+    .split('')
+    .reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return options[hash % options.length];
 }
 
 /**

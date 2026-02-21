@@ -16,7 +16,7 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
   chess.reset();
 
   const analyzedMoves = [];
-  let prevEval = 0;
+  let prevEvaluation = await getStockfishEval(chess.fen(), 14, engineMode);
   let blunders = 0;
   let mistakes = 0;
   let inaccuracies = 0;
@@ -25,8 +25,8 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
   const endgameAccuracy = [];
 
   for (let i = 0; i < moves.length; i += 1) {
-    const analyzedMove = await analyzeMove(chess, moves[i], i, moves.length, prevEval, playerColor, engineMode);
-    prevEval = analyzedMove.eval;
+    const analyzedMove = await analyzeMove(chess, moves[i], i, moves.length, prevEvaluation, playerColor, engineMode);
+    prevEvaluation = analyzedMove.afterEvaluation;
 
     if (analyzedMove.isPlayerMove) {
       if (analyzedMove.classification === 'blunder') blunders += 1;
@@ -58,14 +58,26 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
 
 async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor, engineMode) {
   const fenBefore = chess.fen();
+  const moveIndex = index + 1;
+  const beforeEvaluation = prevEval || { eval: 0, source: 'material', bestMove: null };
   chess.move(move.san);
   const fenAfter = chess.fen();
-  const evaluation = await getStockfishEval(fenAfter, 14, engineMode);
+  const afterEvaluation = await getStockfishEval(fenAfter, 14, engineMode);
   const isPlayerMove = (index % 2 === 0 && playerColor === 'white') || (index % 2 === 1 && playerColor === 'black');
-  const currentEval = evaluation?.eval || 0;
-  const evalDrop = getEvalDrop({ isPlayerMove, playerColor, prevEval, currentEval });
+  const currentEval = afterEvaluation?.eval || 0;
+  const evalDrop = getEvalDrop({
+    isPlayerMove,
+    isWhiteMove: index % 2 === 0,
+    previousEval: beforeEvaluation.eval || 0,
+    currentEval,
+  });
 
-  const evalSource = evaluation?.source || 'unknown';
+  const evalSource = mergeEvalSources(beforeEvaluation.source, afterEvaluation.source);
+  const bestMoveUci = beforeEvaluation.bestMove || null;
+  const playerMatchedBestMove = bestMoveUci ? toUciMove(move) === bestMoveUci : false;
+  const classification = isPlayerMove
+    ? classifyMove({ evalDrop, evalSource, moveIndex, playerMatchedBestMove })
+    : 'book';
 
   return {
     num: Math.floor(index / 2) + 1,
@@ -75,13 +87,16 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
     fenAfter,
     eval: currentEval,
     evalDrop,
-    classification: isPlayerMove ? classifyMove(evalDrop, evalSource) : 'book',
+    classification,
     phase: getGamePhase(index, totalMoves),
     isPlayerMove,
     from: move.from,
     to: move.to,
     evalSource,
+    bestMove: bestMoveUci,
+    playerMatchedBestMove,
     moveScore: computeMoveScore(evalSource, evalDrop),
+    afterEvaluation,
   };
 }
 
@@ -94,10 +109,16 @@ function computeMoveScore(evalSource, evalDrop) {
   return Math.max(0, Math.round(100 - evalDrop * 30));
 }
 
-function getEvalDrop({ isPlayerMove, playerColor, prevEval, currentEval }) {
+function getEvalDrop({ isPlayerMove, isWhiteMove, previousEval, currentEval }) {
   if (!isPlayerMove) return 0;
-  if (playerColor === 'black') return Math.max(0, currentEval - prevEval);
-  return Math.max(0, prevEval - currentEval);
+  return isWhiteMove ? Math.max(0, previousEval - currentEval) : Math.max(0, currentEval - previousEval);
+}
+
+function mergeEvalSources(beforeSource, afterSource) {
+  if (beforeSource === 'material' || afterSource === 'material') return 'material';
+  if (beforeSource === 'engine-local' || afterSource === 'engine-local') return 'engine-local';
+  if (beforeSource === 'engine-web' || afterSource === 'engine-web') return 'engine-web';
+  return afterSource || beforeSource || 'unknown';
 }
 
 async function getStockfishEval(fen, depth = 14, engineMode = 'auto') {
@@ -147,10 +168,16 @@ async function getLocalEval(fen, depth) {
     const lines = stdout.split('\n');
     const infoLines = lines.filter((line) => line.includes(' score '));
     const bestLine = infoLines[infoLines.length - 1] || '';
-    return { eval: parseUciScore(bestLine), source: 'engine-local', depth };
+    const bestMoveLine = lines.find((line) => line.startsWith('bestmove ')) || '';
+    return { eval: parseUciScore(bestLine), source: 'engine-local', depth, bestMove: parseUciBestMove(bestMoveLine) };
   } catch {
     return null;
   }
+}
+
+function parseUciBestMove(line) {
+  const match = line.match(/^bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+  return match ? match[1] : null;
 }
 
 async function hasLocalStockfish() {
@@ -181,12 +208,21 @@ function markEngineUnavailable() {
   engineUnavailableUntil = Date.now() + ENGINE_COOLDOWN_MS;
 }
 
-function classifyMove(evalDrop, evalSource) {
+function classifyMove({ evalDrop, evalSource, moveIndex, playerMatchedBestMove }) {
+  if (evalSource !== 'material' && moveIndex <= 12 && playerMatchedBestMove && evalDrop <= 0.08) return 'book';
   if (evalDrop > 2.0) return 'blunder';
   if (evalDrop > 1.0) return 'mistake';
-  if (evalDrop > 0.4) return 'inaccuracy';
-  if (evalSource !== 'material' && evalDrop <= 0.03) return 'great';
-  return 'good';
+  if (evalDrop > 0.45) return 'inaccuracy';
+  if (playerMatchedBestMove && evalDrop <= 0.03) return 'best';
+  if (evalDrop <= 0.08) return evalSource === 'material' ? 'good' : 'excellent';
+  if (evalDrop <= 0.18) return 'great';
+  if (evalDrop <= 0.35) return 'good';
+  return 'inaccuracy';
+}
+
+function toUciMove(move) {
+  const promotion = move.promotion || '';
+  return `${move.from}${move.to}${promotion}`;
 }
 
 function addPhaseAccuracy(phase, score, buckets) {

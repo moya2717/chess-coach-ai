@@ -52,3 +52,39 @@ test('analyzeGameWithEngine marks opponent moves as book and avoids great spam o
   assert.ok(opponentMoves.every((move) => move.classification === 'book'));
   assert.ok(playerMoves.every((move) => move.classification !== 'great'));
 });
+
+test('analyzeGameWithEngine emits varied move classifications with engine best-move context', async () => {
+  const originalFetch = global.fetch;
+  const originalNow = Date.now;
+  Date.now = () => originalNow() + 10 * 60_000;
+  const responses = [
+    { eval: 25, move: 'e2e4' },
+    { eval: 10, move: 'e7e5' },
+    { eval: 28, move: 'g1f3' },
+    { eval: 30, move: 'b8c6' },
+    { eval: 28, move: 'f1b5' },
+    { eval: -30, move: 'a7a6' },
+    { eval: -320, move: 'b5a4' },
+  ];
+
+  global.fetch = async () => {
+    const next = responses.shift() || { eval: 0, move: 'a2a3' };
+    return {
+      ok: true,
+      json: async () => next,
+    };
+  };
+
+  const pgn = '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6';
+  const analysis = await analyzeGameWithEngine(pgn, 'white', 'web');
+  global.fetch = originalFetch;
+  Date.now = originalNow;
+
+  const playerMoves = analysis.moves.filter((move) => move.isPlayerMove);
+  assert.deepEqual(
+    playerMoves.map((move) => move.classification),
+    ['great', 'book', 'inaccuracy'],
+  );
+  assert.equal(playerMoves[1].bestMove, 'g1f3');
+  assert.equal(playerMoves[1].playerMatchedBestMove, true);
+});
