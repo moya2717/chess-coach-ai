@@ -1,0 +1,4 @@
+streamlit==1.40.1
+python-chess==1.999
+requests==2.32.3
+pytest==8.3.4
