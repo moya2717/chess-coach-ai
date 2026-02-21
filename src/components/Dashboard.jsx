@@ -1,22 +1,23 @@
+import { buildTrendSeries, computeDeltaSummary, formatDelta } from '../services/dashboard-metrics';
+
 export default function Dashboard({
   games,
   patterns,
+  analysisRuns = [],
   puzzleProgressByPattern,
   onSelectGame,
   onNavigateToPuzzles,
 }) {
   const totalGames = games.length;
-  const wins = games.filter(g => g.result === 'win').length;
-  const losses = games.filter(g => g.result === 'loss').length;
-  const draws = games.filter(g => g.result === 'draw').length;
-  const avgAccuracy = totalGames > 0
-    ? Math.round(games.reduce((sum, g) => sum + (g.analysis?.accuracy || 0), 0) / totalGames)
-    : 0;
+  const wins = games.filter((g) => g.result === 'win').length;
+  const losses = games.filter((g) => g.result === 'loss').length;
+  const draws = games.filter((g) => g.result === 'draw').length;
+  const avgAccuracy = averageFromGames(games, (g) => g.analysis?.accuracy || 0);
   const totalBlunders = games.reduce((sum, g) => sum + (g.analysis?.blunders || 0), 0);
-  const avgEndgame = totalGames > 0
-    ? Math.round(games.reduce((sum, g) => sum + (g.analysis?.phases?.endgame || 0), 0) / totalGames)
-    : 0;
+  const avgEndgame = averageFromGames(games, (g) => g.analysis?.phases?.endgame || 0);
   const aggregatePuzzleProgress = summarizePuzzleProgress(puzzleProgressByPattern);
+  const trendSeries = buildTrendSeries(analysisRuns);
+  const deltas = computeDeltaSummary(analysisRuns);
 
   const colorForAccuracy = (val) =>
     val > 70 ? 'var(--accent-green)' : val > 55 ? 'var(--accent-amber)' : 'var(--accent-red)';
@@ -31,26 +32,18 @@ export default function Dashboard({
         </div>
         <div className="stat-card animate-in delay-2">
           <div className="stat-label">Average Accuracy</div>
-          <div className="stat-value" style={{ color: colorForAccuracy(avgAccuracy) }}>
-            {avgAccuracy}%
-          </div>
+          <div className="stat-value" style={{ color: colorForAccuracy(avgAccuracy) }}>{avgAccuracy}%</div>
           <div className="stat-detail">Target: 75%+ for your rating</div>
         </div>
         <div className="stat-card animate-in delay-3">
           <div className="stat-label">Total Blunders</div>
           <div className="stat-value" style={{ color: 'var(--accent-red)' }}>{totalBlunders}</div>
-          <div className="stat-detail">
-            {totalGames > 0 ? (totalBlunders / totalGames).toFixed(1) : 0} per game avg
-          </div>
+          <div className="stat-detail">{totalGames > 0 ? (totalBlunders / totalGames).toFixed(1) : 0} per game avg</div>
         </div>
         <div className="stat-card animate-in delay-4">
           <div className="stat-label">Endgame Accuracy</div>
-          <div className="stat-value" style={{ color: colorForAccuracy(avgEndgame) }}>
-            {avgEndgame}%
-          </div>
-          <div className="stat-detail">
-            {avgEndgame < 60 ? 'Needs work — your weakest phase' : 'Solid endgame play'}
-          </div>
+          <div className="stat-value" style={{ color: colorForAccuracy(avgEndgame) }}>{avgEndgame}%</div>
+          <div className="stat-detail">{avgEndgame < 60 ? 'Needs work — your weakest phase' : 'Solid endgame play'}</div>
         </div>
       </div>
 
@@ -60,22 +53,36 @@ export default function Dashboard({
         <Widget title="Puzzle Accuracy" value={`${aggregatePuzzleProgress.accuracy}%`} detail={`${aggregatePuzzleProgress.attempts} attempts`} />
       </div>
 
+      <div className="panel animate-in delay-1">
+        <div className="panel-header"><h3>📈 Analysis Trends</h3></div>
+        {trendSeries.length === 0 ? (
+          <div className="pattern-desc">Run analysis multiple times to unlock trend charts.</div>
+        ) : (
+          <>
+            <div className="stat-cards" style={{ marginBottom: 12 }}>
+              <DeltaCard label="Accuracy" value={formatDelta(deltas.accuracy, '%')} positiveGood />
+              <DeltaCard label="Blunders / game" value={formatDelta(deltas.blundersPerGame, '')} positiveGood={false} />
+              <DeltaCard label="Opening weakness" value={formatDelta(deltas.openingWeakness, '%')} positiveGood={false} />
+              <DeltaCard label="Endgame weakness" value={formatDelta(deltas.endgameWeakness, '%')} positiveGood={false} />
+            </div>
+            <TrendChart title="Accuracy Over Time" data={trendSeries} dataKey="accuracy" unit="%" />
+            <TrendChart title="Blunders Per Game" data={trendSeries} dataKey="blundersPerGame" />
+            <TrendChart title="Phase Weakness (Lower is Better)" data={trendSeries} dataKey="endgameWeakness" unit="%" />
+          </>
+        )}
+      </div>
+
       <div className="panel animate-in delay-2">
         <div className="panel-header">
           <h3>🎯 Detected Patterns</h3>
-          <span className="badge badge-red">
-            {patterns.filter(p => p.severity === 'critical').length} Critical
-          </span>
+          <span className="badge badge-red">{patterns.filter((p) => p.severity === 'critical').length} Critical</span>
         </div>
         {patterns.map((p, i) => (
           <div key={i} className="pattern-item" onClick={() => onNavigateToPuzzles(p)}>
             <div className="pattern-name">
               {p.icon} {p.name}
               {p.frequency > 0 && (
-                <span
-                  className={`badge ${p.severity === 'critical' ? 'badge-red' : 'badge-amber'}`}
-                  style={{ fontSize: 10 }}
-                >
+                <span className={`badge ${p.severity === 'critical' ? 'badge-red' : 'badge-amber'}`} style={{ fontSize: 10 }}>
                   {p.frequency}% of games
                 </span>
               )}
@@ -104,20 +111,10 @@ export default function Dashboard({
         {games.map((game) => (
           <div key={game.id} className="game-item" onClick={() => onSelectGame(game)}>
             <div className="game-info">
-              <span className="opponent">
-                vs {game.opponent} ({game.opponentRating})
-              </span>
-              <span className="game-meta">
-                {game.opening} · {game.timeControl} · {game.platform} · Accuracy:{' '}
-                {game.analysis?.accuracy || '?'}%
-              </span>
+              <span className="opponent">vs {game.opponent} ({game.opponentRating})</span>
+              <span className="game-meta">{game.opening} · {game.timeControl} · {game.platform} · Accuracy: {game.analysis?.accuracy || '?'}%</span>
             </div>
-            <span
-              className={`game-result ${
-                game.result === 'win' ? 'result-win' :
-                game.result === 'loss' ? 'result-loss' : 'result-draw'
-              }`}
-            >
+            <span className={`game-result ${game.result === 'win' ? 'result-win' : game.result === 'loss' ? 'result-loss' : 'result-draw'}`}>
               {game.result.toUpperCase()}
             </span>
           </div>
@@ -127,11 +124,41 @@ export default function Dashboard({
   );
 }
 
-function Widget({ title, value, detail }) {
+function TrendChart({ title, data, dataKey, unit = '' }) {
+  const values = data.map((item) => item[dataKey]);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const points = values
+    .map((value, index) => {
+      const x = (index / Math.max(values.length - 1, 1)) * 100;
+      const y = 100 - ((value - min) / range) * 100;
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div className="stat-label" style={{ marginBottom: 6 }}>{title}</div>
+      <svg viewBox="0 0 100 100" width="100%" height="80" role="img" aria-label={title}>
+        <polyline fill="none" stroke="var(--accent-blue)" strokeWidth="2" points={points} />
+      </svg>
+      <div className="stat-detail">Latest: {values[values.length - 1]}{unit}</div>
+    </div>
+  );
+}
+
+function DeltaCard({ label, value, positiveGood = true }) {
+  const good = value.startsWith('+') ? positiveGood : !positiveGood;
+  const color = value === 'N/A' ? 'var(--text-secondary)' : good ? 'var(--accent-green)' : 'var(--accent-red)';
+  return <Widget title={label} value={value} detail="Last 30d vs previous 30d" valueColor={color} />;
+}
+
+function Widget({ title, value, detail, valueColor }) {
   return (
     <div className="stat-card animate-in">
       <div className="stat-label">{title}</div>
-      <div className="stat-value">{value}</div>
+      <div className="stat-value" style={{ color: valueColor }}>{value}</div>
       <div className="stat-detail">{detail}</div>
     </div>
   );
@@ -155,3 +182,12 @@ function summarizePuzzleProgress(progressByPattern = {}) {
     accuracy: aggregate.attempts > 0 ? Math.round((aggregate.completedCount / aggregate.attempts) * 100) : 0,
   };
 }
+
+function averageFromGames(games, selector) {
+  if (games.length === 0) {
+    return 0;
+  }
+  const total = games.reduce((sum, game) => sum + selector(game), 0);
+  return Math.round(total / games.length);
+}
+
