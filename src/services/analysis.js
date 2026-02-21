@@ -13,12 +13,43 @@ export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto
     throw new Error('Invalid PGN format');
   }
 
-  return apiPost('/api/analyze', {
+  const payload = {
     pgn,
     playerColor,
-    cacheKey: chess.header().Site || chess.header().Event || pgn.slice(0, 64),
+    cacheKey: buildAnalysisCacheKey({ pgn, headers: chess.header(), playerColor, engineMode }),
     engineMode,
-  });
+  };
+
+  return postAnalyzeWithRetry(payload);
+}
+
+export function buildAnalysisCacheKey({ pgn, headers = {}, playerColor = 'white', engineMode = 'auto' }) {
+  const idSeed = headers.Site || headers.Link || headers.UTCDate || headers.Date || headers.Event || '';
+  const canonicalSeed = idSeed ? `${idSeed}:${playerColor}:${engineMode}` : `${playerColor}:${engineMode}`;
+  return `${canonicalSeed}:${hashString(pgn)}`;
+}
+
+
+async function postAnalyzeWithRetry(payload, maxAttempts = 2) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await apiPost('/api/analyze', payload, { timeout: 120000 });
+    } catch (error) {
+      lastError = error;
+      if (!isRetriableAnalyzeError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+    }
+  }
+  throw lastError || new Error('Analysis request failed');
+}
+
+function isRetriableAnalyzeError(error) {
+  if (!error) return false;
+  if (error.code === 'ECONNABORTED') return true;
+  const status = error.response?.status;
+  return status >= 500 && status < 600;
 }
 
 /**
@@ -111,6 +142,11 @@ function avg(arr) {
   return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function hashString(value = '') {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
 }

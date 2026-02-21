@@ -42,6 +42,7 @@ function App() {
   const [puzzleProgressByPattern, setPuzzleProgressByPattern] = useState({});
   const [authUser, setAuthUser] = useState(null);
   const [analysisRuns, setAnalysisRuns] = useState([]);
+  const [analysisProgress, setAnalysisProgress] = useState({ active: false, completed: 0, total: 0 });
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -129,25 +130,29 @@ function App() {
 
       // Step 4: Analyze each game with Stockfish
       setLoadingStep(4);
+      setAnalysisProgress({ active: true, completed: 0, total: allGames.length });
       const estimatedSeconds = estimateTotalAnalysisSeconds(allGames.length, engineMode);
       setLoadingMessage(`Running deep Stockfish analysis on ${allGames.length} games (~${estimatedSeconds}s estimated)...`);
 
       for (let i = 0; i < allGames.length; i += 1) {
         const game = allGames[i];
+        const remaining = Math.max(0, allGames.length - i - 1);
+        const remainingSeconds = estimateTotalAnalysisSeconds(remaining, engineMode);
+
         if (!game.pgn) {
-          game.analysis = createFallbackAnalysis();
+          game.analysis = createUnavailableAnalysis();
+          setAnalysisProgress({ active: true, completed: i + 1, total: allGames.length });
           continue;
         }
 
-        const remaining = Math.max(0, allGames.length - i - 1);
-        const remainingSeconds = estimateTotalAnalysisSeconds(remaining, engineMode);
         setLoadingMessage(`Analyzing game ${i + 1} of ${allGames.length} (vs ${game.opponent}) · ~${remainingSeconds}s remaining`);
         try {
           game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode);
         } catch (err) {
           console.warn(`Analysis failed for game ${i}:`, err.message);
-          game.analysis = createFallbackAnalysis();
+          game.analysis = createUnavailableAnalysis(err?.message);
         }
+        setAnalysisProgress({ active: true, completed: i + 1, total: allGames.length });
       }
 
       // Step 5: Detect patterns
@@ -181,6 +186,8 @@ function App() {
       console.error('Analysis pipeline error:', err);
       setError(`Something went wrong: ${err.message}. Please try again.`);
       setScreen('setup');
+    } finally {
+      setAnalysisProgress((prev) => ({ ...prev, active: false }));
     }
   }, [authUser, hydratePuzzleProgress]);
 
@@ -217,6 +224,10 @@ function App() {
 
   const showNav = authUser && screen !== 'setup' && screen !== 'loading';
   const requiresAuth = isAuthConfigured() && !authUser;
+  const analysisCompletion = getAnalysisCompletion(analysisProgress);
+  const engineStatusTitle = analysisProgress.total > 0
+    ? `Stockfish analyzing: ${analysisProgress.completed}/${analysisProgress.total} games (${analysisCompletion}%)`
+    : 'Stockfish idle';
 
   const handleLogout = async () => {
     await logoutUser();
@@ -229,6 +240,15 @@ function App() {
         <div className="header-brand">
           <div className="logo">♞</div>
           <h1>Chess<span>Coach</span> AI</h1>
+          <div
+            className={`engine-indicator ${analysisProgress.active ? 'active' : ''}`}
+            role="status"
+            aria-live="polite"
+            title={engineStatusTitle}
+          >
+            <span className="engine-light" />
+            <span className="engine-label">{analysisProgress.active ? `${analysisCompletion}%` : 'Idle'}</span>
+          </div>
         </div>
         {showNav && (
           <nav className="header-nav">
@@ -287,18 +307,16 @@ function App() {
   );
 }
 
-function createFallbackAnalysis() {
+function createUnavailableAnalysis(reason = '') {
   return {
     moves: [],
-    accuracy: Math.floor(Math.random() * 30) + 50,
-    blunders: Math.floor(Math.random() * 3),
-    mistakes: Math.floor(Math.random() * 3) + 1,
-    inaccuracies: Math.floor(Math.random() * 4) + 1,
-    phases: {
-      opening: Math.floor(Math.random() * 25) + 60,
-      middlegame: Math.floor(Math.random() * 30) + 45,
-      endgame: Math.floor(Math.random() * 35) + 35,
-    },
+    accuracy: 0,
+    blunders: 0,
+    mistakes: 0,
+    inaccuracies: 0,
+    phases: { opening: 0, middlegame: 0, endgame: 0 },
+    unavailable: true,
+    reason,
   };
 }
 
@@ -404,6 +422,12 @@ function normalizeDate(rawDate = '') {
     return rawDate.replace(/\./g, '-');
   }
   return new Date().toISOString().split('T')[0];
+}
+
+
+function getAnalysisCompletion(progress) {
+  if (!progress.total) return 0;
+  return Math.round((progress.completed / progress.total) * 100);
 }
 
 function getAuthUserId(user) {
