@@ -111,25 +111,13 @@ async function analyzeGameWithPythonBridge(pgn, playerColor, options = {}) {
   try {
     const payload = await runPythonAnalyzer(pgn, playerColor, options);
     if (payload && Array.isArray(payload.moves) && payload.moves.length > 0) {
-      return normalizePythonPayload(payload);
+      return payload;
     }
   } catch {
     // Fall through to JS analysis fallback for reliability.
   }
 
   return analyzeGameWithEngine(pgn, playerColor, 'local', options);
-}
-
-function normalizePythonPayload(payload) {
-  return {
-    ...payload,
-    quality: payload.quality || {
-      primarySource: 'python-material',
-      engineShare: 0,
-      materialShare: 100,
-      needsRefinement: true,
-    },
-  };
 }
 
 async function runPythonAnalyzer(pgn, playerColor, options = {}) {
