@@ -2,7 +2,7 @@ import { ApiError } from '../lib/errors.js';
 import { requestWithRetry } from '../lib/http-client.js';
 
 const BASE_URL = 'https://lichess.org/api';
-
+const INCLUDED_SPEEDS = new Set(['rapid', 'blitz', 'bullet', 'classical', 'correspondence']);
 
 export async function fetchLichessProfile(username) {
   try {
@@ -33,6 +33,7 @@ export async function fetchLichessRecentGames(username, count = 20) {
     });
 
     return parseNdjson(text)
+      .filter(isIncludedLichessGame)
       .map((game, index) => processLichessGame(game, username, index))
       .filter((game) => !isCoachGame(game));
   } catch (error) {
@@ -91,7 +92,7 @@ function processLichessGame(rawGame, username, index) {
     opponentRating: opponent?.rating || 0,
     playerRating: player?.rating || 0,
     result: resolveResult(rawGame, playerColor),
-    timeControl: parseTimeControl(rawGame.clock),
+    timeControl: parseTimeControl(rawGame.clock, rawGame.speed),
     date: rawGame.createdAt ? new Date(rawGame.createdAt).toISOString().split('T')[0] : 'Unknown',
     opening: rawGame.opening?.name || 'Unknown Opening',
     eco: rawGame.opening?.eco || '',
@@ -101,6 +102,11 @@ function processLichessGame(rawGame, username, index) {
   };
 }
 
+function isIncludedLichessGame(rawGame) {
+  if (!rawGame?.rated) return false;
+  if ((rawGame.variant || 'standard') !== 'standard') return false;
+  return INCLUDED_SPEEDS.has((rawGame.speed || '').toLowerCase());
+}
 
 function isCoachGame(game) {
   const opponentName = (game?.opponent || '').toLowerCase();
@@ -113,7 +119,12 @@ function resolveResult(rawGame, playerColor) {
   return 'draw';
 }
 
-function parseTimeControl(clock) {
+function parseTimeControl(clock, speed) {
+  const normalizedSpeed = (speed || '').toLowerCase();
+  if (normalizedSpeed === 'correspondence') return 'Daily';
+  if (normalizedSpeed === 'rapid') return 'Rapid';
+  if (normalizedSpeed === 'blitz') return 'Blitz';
+  if (normalizedSpeed === 'bullet') return 'Bullet';
   if (!clock) return 'Unknown';
   const baseMinutes = Math.floor(clock.initial / 60);
   return `${baseMinutes}+${clock.increment}`;

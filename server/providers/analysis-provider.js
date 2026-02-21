@@ -34,7 +34,7 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
       if (analyzedMove.classification === 'inaccuracy') inaccuracies += 1;
     }
 
-    addPhaseAccuracy(analyzedMove.phase, 100 - analyzedMove.evalDrop * 30, {
+    addPhaseAccuracy(analyzedMove.phase, analyzedMove.moveScore, {
       openingAccuracy,
       middlegameAccuracy,
       endgameAccuracy,
@@ -78,7 +78,18 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
     isPlayerMove,
     from: move.from,
     to: move.to,
+    evalSource: evaluation?.source || 'unknown',
+    moveScore: computeMoveScore(evaluation?.source, evalDrop),
   };
+}
+
+
+
+function computeMoveScore(evalSource, evalDrop) {
+  if (evalSource === 'material') {
+    return Math.max(45, Math.round(72 - evalDrop * 15));
+  }
+  return Math.max(0, Math.round(100 - evalDrop * 30));
 }
 
 function getEvalDrop({ isPlayerMove, playerColor, prevEval, currentEval }) {
@@ -187,7 +198,7 @@ function calculateAccuracy(moves) {
   const playerMoves = moves.filter((move) => move.isPlayerMove);
   if (!playerMoves.length) return 0;
 
-  const total = playerMoves.reduce((sum, move) => sum + Math.max(0, 100 - move.evalDrop * 30), 0);
+  const total = playerMoves.reduce((sum, move) => sum + (move.moveScore || 0), 0);
   return Math.min(100, Math.round(total / playerMoves.length));
 }
 

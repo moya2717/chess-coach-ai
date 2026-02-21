@@ -21,6 +21,8 @@ import { getPuzzleProgress, updatePuzzleProgress } from './services/puzzles';
 import { isAuthConfigured, logoutUser, subscribeToAuthState } from './services/auth';
 import { listAnalysisRuns, recordAnalysisRun } from './services/analysis-history';
 
+const MAX_GAMES_PER_PLATFORM = 200;
+
 function App() {
   // ─── State ───
   const [screen, setScreen] = useState('setup');
@@ -73,7 +75,7 @@ function App() {
         setLoadingStep(0);
         setLoadingMessage(`Connecting to Chess.com as "${chesscomUser}"...`);
         try {
-          const chesscomGames = await getChesscomGames(chesscomUser, 15);
+          const chesscomGames = await getChesscomGames(chesscomUser, MAX_GAMES_PER_PLATFORM);
           allGames.push(...chesscomGames);
           setLoadingStep(1);
         } catch (err) {
@@ -89,7 +91,7 @@ function App() {
         setLoadingStep(2);
         setLoadingMessage(`Connecting to Lichess as "${lichessUser}"...`);
         try {
-          const lichessGames = await getLichessGames(lichessUser, 15);
+          const lichessGames = await getLichessGames(lichessUser, MAX_GAMES_PER_PLATFORM);
           allGames.push(...lichessGames);
           setLoadingStep(3);
         } catch (err) {
@@ -120,7 +122,7 @@ function App() {
       setLoadingMessage('Running Stockfish analysis on your games...');
 
       // Analyze the first few games deeply (the rest get quick analysis)
-      const deepAnalysisCount = Math.min(5, allGames.length);
+      const deepAnalysisCount = Math.min(8, allGames.length);
       for (let i = 0; i < allGames.length; i++) {
         const game = allGames[i];
         if (game.pgn && i < deepAnalysisCount) {
@@ -183,7 +185,7 @@ function App() {
   const handleNavigateToPuzzles = (pattern) => {
     setSelectedPattern(pattern);
     setScreen('puzzles');
-    setActiveTab('train');
+    setActiveTab('puzzles');
   };
 
   const goToDashboard = () => {
@@ -231,10 +233,10 @@ function App() {
               Dashboard
             </button>
             <button
-              className={activeTab === 'train' ? 'active' : ''}
-              onClick={() => { setScreen('puzzles'); setActiveTab('train'); }}
+              className={activeTab === 'puzzles' ? 'active' : ''}
+              onClick={() => { setScreen('puzzles'); setActiveTab('puzzles'); }}
             >
-              Train
+              Puzzles
             </button>
             <button onClick={handleLogout}>Logout</button>
           </nav>
