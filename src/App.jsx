@@ -15,6 +15,7 @@ import PuzzleTrainer from './components/PuzzleTrainer';
 import { getRecentGames as getChesscomGames } from './services/chesscom-api';
 import { getRecentGames as getLichessGames } from './services/lichess-api';
 import { analyzeGame, detectPatterns } from './services/analysis';
+import { getPuzzleProgress, updatePuzzleProgress } from './services/puzzles';
 
 function App() {
   // ─── State ───
@@ -28,6 +29,18 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [error, setError] = useState(null);
   const [usernames, setUsernames] = useState({ chesscom: '', lichess: '' });
+  const [puzzleProgressByPattern, setPuzzleProgressByPattern] = useState({});
+
+
+
+  const hydratePuzzleProgress = useCallback(async (detectedPatterns, nextUsernames) => {
+    const userKey = nextUsernames.lichess || nextUsernames.chesscom || 'guest';
+    const entries = await Promise.all(detectedPatterns.map(async (entry) => {
+      const progress = await getPuzzleProgress(userKey, entry.puzzleTheme || 'short');
+      return [entry.puzzleTheme || 'short', progress];
+    }));
+    setPuzzleProgressByPattern(Object.fromEntries(entries));
+  }, []);
 
   // ─── Fetch and Analyze Games ───
   const startAnalysis = useCallback(async (chesscomUser, lichessUser) => {
@@ -113,8 +126,10 @@ function App() {
       // Short pause so user sees the final step
       await new Promise(r => setTimeout(r, 600));
 
+      const resolvedPatterns = detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns();
       setGames(allGames);
-      setPatterns(detectedPatterns.length > 0 ? detectedPatterns : getDefaultPatterns());
+      setPatterns(resolvedPatterns);
+      await hydratePuzzleProgress(resolvedPatterns, { chesscom: chesscomUser, lichess: lichessUser });
       setScreen('dashboard');
       setActiveTab('dashboard');
 
@@ -123,7 +138,7 @@ function App() {
       setError(`Something went wrong: ${err.message}. Please try again.`);
       setScreen('setup');
     }
-  }, []);
+  }, [hydratePuzzleProgress]);
 
   // ─── Navigation ───
   const handleSelectGame = (game) => {
@@ -142,6 +157,21 @@ function App() {
     setScreen('dashboard');
     setActiveTab('dashboard');
   };
+
+
+
+  const handlePuzzleProgressUpdate = useCallback(async ({ pattern, solved, tries, timeSpent }) => {
+    const userKey = usernames.lichess || usernames.chesscom || 'guest';
+    const progress = await updatePuzzleProgress({
+      userKey,
+      pattern,
+      solved,
+      tries,
+      timeSpent,
+    });
+    setPuzzleProgressByPattern((current) => ({ ...current, [pattern]: progress }));
+    return progress;
+  }, [usernames]);
 
   const showNav = screen !== 'setup' && screen !== 'loading';
 
@@ -183,6 +213,7 @@ function App() {
           <Dashboard
             games={games}
             patterns={patterns}
+            puzzleProgressByPattern={puzzleProgressByPattern}
             onSelectGame={handleSelectGame}
             onNavigateToPuzzles={handleNavigateToPuzzles}
           />
@@ -191,7 +222,13 @@ function App() {
           <GameReview game={selectedGame} onBack={goToDashboard} />
         )}
         {screen === 'puzzles' && (
-          <PuzzleTrainer pattern={selectedPattern} patterns={patterns} onBack={goToDashboard} />
+          <PuzzleTrainer
+            pattern={selectedPattern}
+            patterns={patterns}
+            onBack={goToDashboard}
+            usernames={usernames}
+            onPuzzleProgressUpdate={handlePuzzleProgressUpdate}
+          />
         )}
       </div>
     </>
