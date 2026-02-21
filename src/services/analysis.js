@@ -5,7 +5,7 @@
 import { Chess } from 'chess.js';
 import { apiPost } from './api-client';
 
-export async function analyzeGame(pgn, playerColor = 'white') {
+export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto') {
   const chess = new Chess();
   try {
     chess.loadPgn(pgn);
@@ -17,6 +17,7 @@ export async function analyzeGame(pgn, playerColor = 'white') {
     pgn,
     playerColor,
     cacheKey: chess.header().Site || chess.header().Event || pgn.slice(0, 64),
+    engineMode,
   });
 }
 

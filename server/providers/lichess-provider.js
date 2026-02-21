@@ -104,7 +104,7 @@ function processLichessGame(rawGame, username, index) {
 
 function isCoachGame(game) {
   const opponentName = (game?.opponent || '').toLowerCase();
-  return opponentName.includes('coach');
+  return /(coach|bot|computer|stockfish|chesscoach|maia)/.test(opponentName);
 }
 
 function resolveResult(rawGame, playerColor) {

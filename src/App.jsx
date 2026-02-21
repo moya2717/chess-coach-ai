@@ -7,6 +7,7 @@
 // ═══════════════════════════════════════════
 
 import { useEffect, useState, useCallback } from 'react';
+import { Chess } from 'chess.js';
 import SetupScreen from './components/SetupScreen';
 import LoadingScreen from './components/LoadingScreen';
 import Dashboard from './components/Dashboard';
@@ -59,7 +60,7 @@ function App() {
   }, []);
 
   // ─── Fetch and Analyze Games ───
-  const startAnalysis = useCallback(async (chesscomUser, lichessUser) => {
+  const startAnalysis = useCallback(async ({ chesscomUser = '', lichessUser = '', uploadedPgn = '', engineMode = 'auto' }) => {
     setScreen('loading');
     setError(null);
     setUsernames({ chesscom: chesscomUser, lichess: lichessUser });
@@ -99,6 +100,12 @@ function App() {
         setLoadingStep(3);
       }
 
+
+      if (uploadedPgn.trim()) {
+        const importedGames = parseUploadedPgnGames(uploadedPgn);
+        allGames.push(...importedGames);
+      }
+
       if (allGames.length === 0) {
         setError('No games found. Please check your username(s) and try again.');
         setScreen('setup');
@@ -119,7 +126,7 @@ function App() {
         if (game.pgn && i < deepAnalysisCount) {
           setLoadingMessage(`Analyzing game ${i + 1} of ${deepAnalysisCount} (vs ${game.opponent})...`);
           try {
-            game.analysis = await analyzeGame(game.pgn, game.playerColor);
+            game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode);
           } catch (err) {
             console.warn(`Analysis failed for game ${i}:`, err.message);
             game.analysis = createFallbackAnalysis();
@@ -301,6 +308,70 @@ function getDefaultPatterns() {
       puzzleTheme: 'short',
     }
   ];
+}
+
+
+function parseUploadedPgnGames(uploadedPgn) {
+  return splitPgnGames(uploadedPgn)
+    .map((pgn, index) => toUploadedGame(pgn, index))
+    .filter(Boolean)
+    .filter((game) => !isCoachOpponent(game.opponent));
+}
+
+function toUploadedGame(pgn, index) {
+  const chess = new Chess();
+  try {
+    chess.loadPgn(pgn, { strict: false });
+  } catch {
+    return null;
+  }
+
+  const headers = chess.header();
+  const whiteName = headers.White || '';
+  const blackName = headers.Black || '';
+  const userIsWhite = !isCoachOpponent(blackName);
+
+  return {
+    id: `upload-${index}`,
+    platform: 'upload',
+    pgn,
+    url: '',
+    playerColor: userIsWhite ? 'white' : 'black',
+    opponent: userIsWhite ? blackName || 'Uploaded Opponent' : whiteName || 'Uploaded Opponent',
+    opponentRating: Number(userIsWhite ? (headers.BlackElo || 0) : (headers.WhiteElo || 0)),
+    playerRating: Number(userIsWhite ? (headers.WhiteElo || 0) : (headers.BlackElo || 0)),
+    result: normalizePgnResult(headers.Result, userIsWhite),
+    timeControl: headers.TimeControl || 'Unknown',
+    date: normalizeDate(headers.Date),
+    opening: headers.Opening || 'Uploaded PGN',
+    eco: headers.ECO || '',
+    analysis: null,
+    moves: [],
+  };
+}
+
+function splitPgnGames(text) {
+  return text
+    .split(/(?=\[Event\s+")/g)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.includes('1.'));
+}
+
+function normalizePgnResult(result, userIsWhite) {
+  if (result === '1-0') return userIsWhite ? 'win' : 'loss';
+  if (result === '0-1') return userIsWhite ? 'loss' : 'win';
+  return 'draw';
+}
+
+function isCoachOpponent(name = '') {
+  return /(coach|bot|computer|stockfish|chesscoach|maia)/i.test(name);
+}
+
+function normalizeDate(rawDate = '') {
+  if (/^\d{4}\.\d{2}\.\d{2}$/.test(rawDate)) {
+    return rawDate.replace(/\./g, '-');
+  }
+  return new Date().toISOString().split('T')[0];
 }
 
 function getAuthUserId(user) {

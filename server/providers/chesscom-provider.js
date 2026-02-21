@@ -93,7 +93,7 @@ function isGameForUser(rawGame, username) {
 
 function isCoachGame(game) {
   const opponentName = (game?.opponent || '').toLowerCase();
-  return /coach|bot/.test(opponentName);
+  return /(coach|bot|computer|stockfish|chesscoach|maia)/.test(opponentName);
 }
 
 function resolveResult(player, opponent) {

@@ -1,10 +1,14 @@
 import { Chess } from 'chess.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { requestWithRetry } from '../lib/http-client.js';
 
+const execFileAsync = promisify(execFile);
 const ENGINE_COOLDOWN_MS = 2 * 60_000;
 let engineUnavailableUntil = 0;
+let localStockfishAvailable;
 
-export async function analyzeGameWithEngine(pgn, playerColor = 'white') {
+export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMode = 'auto') {
   const chess = new Chess();
   chess.loadPgn(pgn);
 
@@ -21,7 +25,7 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white') {
   const endgameAccuracy = [];
 
   for (let i = 0; i < moves.length; i += 1) {
-    const analyzedMove = await analyzeMove(chess, moves[i], i, moves.length, prevEval, playerColor);
+    const analyzedMove = await analyzeMove(chess, moves[i], i, moves.length, prevEval, playerColor, engineMode);
     prevEval = analyzedMove.eval;
 
     if (analyzedMove.isPlayerMove) {
@@ -52,11 +56,11 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white') {
   };
 }
 
-async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor) {
+async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor, engineMode) {
   const fenBefore = chess.fen();
   chess.move(move.san);
   const fenAfter = chess.fen();
-  const evaluation = await getStockfishEval(fenAfter);
+  const evaluation = await getStockfishEval(fenAfter, 14, engineMode);
   const isPlayerMove = (index % 2 === 0 && playerColor === 'white') || (index % 2 === 1 && playerColor === 'black');
   const currentEval = evaluation?.eval || 0;
   const evalDrop = getEvalDrop({ isPlayerMove, playerColor, prevEval, currentEval });
@@ -79,17 +83,21 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
 
 function getEvalDrop({ isPlayerMove, playerColor, prevEval, currentEval }) {
   if (!isPlayerMove) return 0;
-  if (playerColor === 'black') {
-    return Math.max(0, currentEval - prevEval);
-  }
+  if (playerColor === 'black') return Math.max(0, currentEval - prevEval);
   return Math.max(0, prevEval - currentEval);
 }
 
-async function getStockfishEval(fen, depth = 14) {
-  if (!isEngineAvailable()) {
-    return { eval: estimateMaterialEval(fen), source: 'material' };
-  }
+async function getStockfishEval(fen, depth = 14, engineMode = 'auto') {
+  if (engineMode === 'local') return getLocalEvalWithFallback(fen, depth);
+  if (engineMode === 'web') return getWebEvalWithFallback(fen, depth);
 
+  const local = await getLocalEval(fen, depth);
+  if (local) return local;
+  return getWebEvalWithFallback(fen, depth);
+}
+
+async function getWebEvalWithFallback(fen, depth) {
+  if (!isEngineAvailable()) return { eval: estimateMaterialEval(fen), source: 'material' };
   try {
     const data = await requestWithRetry('https://chess-api.com/v1', {
       params: { fen, depth },
@@ -102,12 +110,54 @@ async function getStockfishEval(fen, depth = 14) {
       bestMove: data.move || null,
       depth: data.depth || depth,
       mate: data.mate || null,
-      source: 'engine',
+      source: 'engine-web',
     };
   } catch {
     markEngineUnavailable();
     return { eval: estimateMaterialEval(fen), source: 'material' };
   }
+}
+
+async function getLocalEvalWithFallback(fen, depth) {
+  const local = await getLocalEval(fen, depth);
+  if (local) return local;
+  return { eval: estimateMaterialEval(fen), source: 'material' };
+}
+
+async function getLocalEval(fen, depth) {
+  const hasStockfish = await hasLocalStockfish();
+  if (!hasStockfish) return null;
+
+  const stdin = [`uci`, `isready`, `position fen ${fen}`, `go depth ${depth}`, 'quit'].join('\n');
+  try {
+    const { stdout } = await execFileAsync('stockfish', [], { timeout: 2000, input: stdin, maxBuffer: 1024 * 1024 });
+    const lines = stdout.split('\n');
+    const infoLines = lines.filter((line) => line.includes(' score '));
+    const bestLine = infoLines[infoLines.length - 1] || '';
+    return { eval: parseUciScore(bestLine), source: 'engine-local', depth };
+  } catch {
+    return null;
+  }
+}
+
+async function hasLocalStockfish() {
+  if (localStockfishAvailable !== undefined) return localStockfishAvailable;
+  try {
+    await execFileAsync('stockfish', ['--help'], { timeout: 1200 });
+    localStockfishAvailable = true;
+  } catch {
+    localStockfishAvailable = false;
+  }
+  return localStockfishAvailable;
+}
+
+function parseUciScore(line) {
+  const cpMatch = line.match(/score cp (-?\d+)/);
+  if (cpMatch) return Number(cpMatch[1]) / 100;
+  const mateMatch = line.match(/score mate (-?\d+)/);
+  if (!mateMatch) return 0;
+  const mateDistance = Number(mateMatch[1]);
+  return mateDistance > 0 ? 99 : -99;
 }
 
 function isEngineAvailable() {

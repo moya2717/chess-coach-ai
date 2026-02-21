@@ -11,10 +11,27 @@ test('analyzeGameWithEngine stops calling remote engine after first failure', as
   };
 
   const pgn = '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6';
-  const analysis = await analyzeGameWithEngine(pgn, 'white');
+  const analysis = await analyzeGameWithEngine(pgn, 'white', 'web');
   global.fetch = originalFetch;
 
   assert.equal(analysis.moves.length, 6);
   assert.equal(calls, 1);
+  assert.equal(typeof analysis.accuracy, 'number');
+});
+
+test('analyzeGameWithEngine local mode avoids web fetch when stockfish binary is missing', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return { ok: true };
+  };
+
+  const pgn = '1. d4 d5 2. c4 e6 3. Nc3 Nf6';
+  const analysis = await analyzeGameWithEngine(pgn, 'white', 'local');
+  global.fetch = originalFetch;
+
+  assert.equal(analysis.moves.length, 6);
+  assert.equal(calls, 0);
   assert.equal(typeof analysis.accuracy, 'number');
 });
