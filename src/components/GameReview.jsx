@@ -10,7 +10,14 @@ import {
   toSanFromUci,
 } from '../services/critical-moments';
 
-export default function GameReview({ game, onBack, onReanalyzeGames, analysisInProgress = false }) {
+export default function GameReview({
+  game,
+  onBack,
+  onReanalyzeGames,
+  onAnalyzeGame,
+  activeAnalysisGameId = null,
+  analysisInProgress = false,
+}) {
   const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
   const [engineLine, setEngineLine] = useState([]);
   const [engineLineError, setEngineLineError] = useState('');
@@ -52,6 +59,14 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
   const evalDisplay = currentEval > 0 ? `+${currentEval.toFixed(1)}` : currentEval.toFixed(1);
 
   // Classification styling
+
+
+  useEffect(() => {
+    if (game?.analysis || !game?.id || !onAnalyzeGame) {
+      return;
+    }
+    onAnalyzeGame(game.id);
+  }, [game?.analysis, game?.id, onAnalyzeGame]);
 
   useEffect(() => {
     setEngineLine([]);
@@ -273,6 +288,29 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
               </span>
             )}
           </div>
+
+
+          {!game.analysis && (
+            <div style={{
+              marginTop: 10,
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--accent-blue-dim)',
+              color: 'var(--accent-blue)',
+              fontSize: 12,
+            }}>
+              This game has not been analyzed yet.
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="back-btn"
+                  onClick={() => onAnalyzeGame?.(game.id)}
+                  disabled={analysisInProgress}
+                >
+                  {analysisInProgress && activeAnalysisGameId === game.id ? 'Analyzing this game…' : 'Analyze This Game'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {game.analysisStatus === 'fallback-material' && (
             <div style={{
