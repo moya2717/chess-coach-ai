@@ -23,7 +23,7 @@ import { listAnalysisRuns, recordAnalysisRun } from './services/analysis-history
 
 const MAX_GAMES_PER_ANALYSIS = 30;
 const WINDOW_TO_DAYS = {
-  lastWeek: 7,
+  last7Days: 7,
   last30Days: 30,
 };
 
@@ -130,7 +130,7 @@ function App() {
 
       if (uploadedPgn.trim()) {
         const importedGames = parseUploadedPgnGames(uploadedPgn, { chesscomUser, lichessUser });
-        allGames = importedGames;
+        allGames.push(...importedGames);
       }
 
       if (allGames.length === 0) {

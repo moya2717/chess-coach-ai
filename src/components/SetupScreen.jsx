@@ -57,7 +57,7 @@ export default function SetupScreen({ onSubmit, error }) {
           <label>Game Window</label>
           <select value={timeWindow} onChange={(e) => setTimeWindow(e.target.value)}>
             <option value="last30Days">Last 30 days</option>
-            <option value="lastWeek">Last week</option>
+            <option value="last7Days">Last 7 days</option>
           </select>
           <div className="hint">Used for Chess.com/Lichess fetches. PGN upload analyzes uploaded games only.</div>
         </div>
@@ -72,6 +72,7 @@ export default function SetupScreen({ onSubmit, error }) {
             <option value="auto">Auto (web first, local/material fallback)</option>
             <option value="web">Stockfish Web API</option>
             <option value="local">Stockfish Local Binary</option>
+            <option value="python">Python chess.com-analyzer bridge</option>
           </select>
         </div>
         <button

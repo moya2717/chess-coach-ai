@@ -37,6 +37,24 @@ test('analyzeGameWithEngine local mode avoids web fetch when stockfish binary is
 });
 
 
+
+
+test('analyzeGameWithEngine python mode gracefully falls back when bridge has no move data', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return { ok: true, json: async () => ({ eval: 0, move: null }) };
+  };
+
+  const pgn = '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6';
+  const analysis = await analyzeGameWithEngine(pgn, 'white', 'python');
+  global.fetch = originalFetch;
+
+  assert.equal(analysis.moves.length, 6);
+  assert.equal(typeof analysis.accuracy, 'number');
+  assert.equal(calls, 0);
+});
 test('analyzeGameWithEngine marks opponent moves as book and avoids great spam on material fallback', async () => {
   const originalFetch = global.fetch;
   global.fetch = async () => {
