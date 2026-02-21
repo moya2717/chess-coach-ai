@@ -136,18 +136,20 @@ function App() {
 
       for (let i = 0; i < allGames.length; i += 1) {
         const game = allGames[i];
+        const remaining = Math.max(0, allGames.length - i - 1);
+        const remainingSeconds = estimateTotalAnalysisSeconds(remaining, engineMode);
+
         if (!game.pgn) {
           game.analysis = createFallbackAnalysis(i);
           continue;
         }
 
-        const remaining = Math.max(0, allGames.length - i - 1);
-        const remainingSeconds = estimateTotalAnalysisSeconds(remaining, engineMode);
         setLoadingMessage(`Analyzing game ${i + 1} of ${allGames.length} (vs ${game.opponent}) · ~${remainingSeconds}s remaining`);
         try {
           game.analysis = await analyzeGame(game.pgn, game.playerColor, engineMode);
         } catch (err) {
           console.warn(`Analysis failed for game ${i}:`, err.message);
+          game.analysis = createUnavailableAnalysis(err?.message);
           game.analysis = createFallbackAnalysis(i);
         }
         setAnalysisProgress({ active: true, completed: i + 1, total: allGames.length });
@@ -305,6 +307,16 @@ function App() {
   );
 }
 
+function createUnavailableAnalysis(reason = '') {
+  return {
+    moves: [],
+    accuracy: 0,
+    blunders: 0,
+    mistakes: 0,
+    inaccuracies: 0,
+    phases: { opening: 0, middlegame: 0, endgame: 0 },
+    unavailable: true,
+    reason,
 function createFallbackAnalysis(seed = 0) {
   const basis = seed + 1;
   return {

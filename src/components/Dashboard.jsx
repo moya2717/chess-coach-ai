@@ -1,4 +1,11 @@
+import { useMemo, useState } from 'react';
 import { buildTrendSeries, computeDeltaSummary, formatDelta } from '../services/dashboard-metrics';
+
+const TREND_METRICS = {
+  accuracy: { title: 'Accuracy Over Time', unit: '%' },
+  blundersPerGame: { title: 'Blunders Per Game', unit: '' },
+  endgameWeakness: { title: 'Endgame Weakness (Lower is Better)', unit: '%' },
+};
 
 export default function Dashboard({
   games,
@@ -8,16 +15,23 @@ export default function Dashboard({
   onSelectGame,
   onNavigateToPuzzles,
 }) {
+  const [trendMetric, setTrendMetric] = useState('accuracy');
+  const [resultFilter, setResultFilter] = useState('all');
   const totalGames = games.length;
+  const deeplyAnalyzedGames = games.filter((game) => game.analysis?.moves?.length > 0);
   const wins = games.filter((g) => g.result === 'win').length;
   const losses = games.filter((g) => g.result === 'loss').length;
   const draws = games.filter((g) => g.result === 'draw').length;
-  const avgAccuracy = averageFromGames(games, (g) => g.analysis?.accuracy || 0);
-  const totalBlunders = games.reduce((sum, g) => sum + (g.analysis?.blunders || 0), 0);
-  const avgEndgame = averageFromGames(games, (g) => g.analysis?.phases?.endgame || 0);
+  const avgAccuracy = averageFromGames(deeplyAnalyzedGames, (g) => g.analysis?.accuracy || 0);
+  const totalBlunders = deeplyAnalyzedGames.reduce((sum, g) => sum + (g.analysis?.blunders || 0), 0);
+  const avgEndgame = averageFromGames(deeplyAnalyzedGames, (g) => g.analysis?.phases?.endgame || 0);
   const aggregatePuzzleProgress = summarizePuzzleProgress(puzzleProgressByPattern);
   const trendSeries = buildTrendSeries(analysisRuns);
   const deltas = computeDeltaSummary(analysisRuns);
+  const filteredGames = useMemo(() => {
+    if (resultFilter === 'all') return games;
+    return games.filter((game) => game.result === resultFilter);
+  }, [games, resultFilter]);
 
   const colorForAccuracy = (val) =>
     val > 70 ? 'var(--accent-green)' : val > 55 ? 'var(--accent-amber)' : 'var(--accent-red)';
@@ -28,7 +42,7 @@ export default function Dashboard({
         <div className="stat-card animate-in delay-1">
           <div className="stat-label">Games Analyzed</div>
           <div className="stat-value">{totalGames}</div>
-          <div className="stat-detail">{wins}W / {draws}D / {losses}L</div>
+          <div className="stat-detail">{wins}W / {draws}D / {losses}L · {deeplyAnalyzedGames.length} deep</div>
         </div>
         <div className="stat-card animate-in delay-2">
           <div className="stat-label">Average Accuracy</div>
@@ -65,9 +79,24 @@ export default function Dashboard({
               <DeltaCard label="Opening weakness" value={formatDelta(deltas.openingWeakness, '%')} positiveGood={false} />
               <DeltaCard label="Endgame weakness" value={formatDelta(deltas.endgameWeakness, '%')} positiveGood={false} />
             </div>
-            <TrendChart title="Accuracy Over Time" data={trendSeries} dataKey="accuracy" unit="%" />
-            <TrendChart title="Blunders Per Game" data={trendSeries} dataKey="blundersPerGame" />
-            <TrendChart title="Phase Weakness (Lower is Better)" data={trendSeries} dataKey="endgameWeakness" unit="%" />
+            <div className="dashboard-controls">
+              {Object.entries(TREND_METRICS).map(([key, metric]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`dashboard-toggle ${trendMetric === key ? 'active' : ''}`}
+                  onClick={() => setTrendMetric(key)}
+                >
+                  {metric.title}
+                </button>
+              ))}
+            </div>
+            <TrendChart
+              title={TREND_METRICS[trendMetric].title}
+              data={trendSeries}
+              dataKey={trendMetric}
+              unit={TREND_METRICS[trendMetric].unit}
+            />
           </>
         )}
       </div>
@@ -106,13 +135,25 @@ export default function Dashboard({
       <div className="panel animate-in delay-3">
         <div className="panel-header">
           <h3>📋 Recent Games</h3>
-          <span className="badge badge-blue">{totalGames} games</span>
+          <span className="badge badge-blue">{filteredGames.length} shown</span>
         </div>
-        {games.map((game) => (
+        <div className="dashboard-controls" style={{ padding: '10px 16px' }}>
+          {['all', 'win', 'draw', 'loss'].map((result) => (
+            <button
+              key={result}
+              type="button"
+              className={`dashboard-toggle ${resultFilter === result ? 'active' : ''}`}
+              onClick={() => setResultFilter(result)}
+            >
+              {result === 'all' ? 'All Results' : result.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        {filteredGames.map((game) => (
           <div key={game.id} className="game-item" onClick={() => onSelectGame(game)}>
             <div className="game-info">
               <span className="opponent">vs {game.opponent} ({game.opponentRating})</span>
-              <span className="game-meta">{game.opening} · {game.timeControl} · {game.platform} · Accuracy: {game.analysis?.accuracy || '?'}%</span>
+              <span className="game-meta">{game.opening} · {game.timeControl} · {game.platform} · {formatGameAnalysisStatus(game.analysis)}</span>
             </div>
             <span className={`game-result ${game.result === 'win' ? 'result-win' : game.result === 'loss' ? 'result-loss' : 'result-draw'}`}>
               {game.result.toUpperCase()}
@@ -183,6 +224,12 @@ function summarizePuzzleProgress(progressByPattern = {}) {
   };
 }
 
+function formatGameAnalysisStatus(analysis) {
+  if (!analysis) return 'Pending analysis';
+  if (analysis.unavailable || !analysis.moves?.length) return 'Analysis unavailable';
+  return `Accuracy: ${analysis.accuracy || 0}%`;
+}
+
 function averageFromGames(games, selector) {
   if (games.length === 0) {
     return 0;
@@ -190,4 +237,3 @@ function averageFromGames(games, selector) {
   const total = games.reduce((sum, game) => sum + selector(game), 0);
   return Math.round(total / games.length);
 }
-

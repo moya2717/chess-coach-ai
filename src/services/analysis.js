@@ -13,7 +13,7 @@ export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto
     throw new Error('Invalid PGN format');
   }
 
-  return apiPost('/api/analyze', {
+  const payload = {
     pgn,
     playerColor,
     cacheKey: buildAnalysisCacheKey({ pgn, headers: chess.header(), playerColor, engineMode }),
