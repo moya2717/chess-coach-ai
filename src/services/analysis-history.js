@@ -1,24 +1,35 @@
+import { apiGet, apiPost } from './api-client';
+
 const STORAGE_KEY = 'chesscoach.analysisRuns.v1';
 
-export function listAnalysisRuns(userId) {
-  const allRuns = readRuns();
-  return allRuns
-    .filter((run) => run.userId === userId)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+export async function listAnalysisRuns(userId) {
+  if (!userId) return [];
+  try {
+    const runs = await apiGet('/api/analysis-runs', { userId });
+    return Array.isArray(runs) ? runs : [];
+  } catch {
+    return readRuns()
+      .filter((run) => run.userId === userId)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
 }
 
-export function recordAnalysisRun({ userId, usernames, games, patterns }) {
-  const metrics = buildMetrics(games, patterns);
-  const run = {
-    id: `${userId}-${Date.now()}`,
-    userId,
-    usernames,
-    metrics,
-    createdAt: new Date().toISOString(),
-  };
-  const nextRuns = [...readRuns(), run].slice(-500);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(nextRuns));
-  return run;
+export async function recordAnalysisRun({ userId, usernames, games, patterns }) {
+  const payload = { userId, usernames, games, patterns };
+  try {
+    return await apiPost('/api/analysis-runs', payload);
+  } catch {
+    const run = {
+      id: `${userId}-${Date.now()}`,
+      userId,
+      usernames,
+      metrics: buildMetrics(games, patterns),
+      createdAt: new Date().toISOString(),
+    };
+    const nextRuns = [...readRuns(), run].slice(-500);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextRuns));
+    return run;
+  }
 }
 
 function buildMetrics(games, patterns) {

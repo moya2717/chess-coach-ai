@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("chess")
+
 from chess_coach_py.pgn_utils import parse_pgn_bundle
 
 

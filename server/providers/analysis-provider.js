@@ -221,7 +221,8 @@ function getEvalDrop({ isPlayerMove, isWhiteMove, previousEval, currentEval }) {
 }
 
 function mergeEvalSources(beforeSource, afterSource) {
-  if (beforeSource === 'material' || afterSource === 'material') return 'material';
+  if (afterSource === 'material') return 'material';
+  if (beforeSource === 'material' && afterSource && afterSource !== 'material') return afterSource;
   if (beforeSource === 'engine-local' || afterSource === 'engine-local') return 'engine-local';
   if (beforeSource === 'engine-web' || afterSource === 'engine-web') return 'engine-web';
   return afterSource || beforeSource || 'unknown';

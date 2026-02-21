@@ -1,6 +1,12 @@
 # Chess Coach Python App
 
-This folder contains a Python-first interactive version of Chess Coach built with Streamlit.
+Python-first interactive Chess Coach built with Streamlit.
+
+## What's improved
+
+- Per-game performance metrics (issue counts, blunders, largest material drop)
+- Actionable focus guidance based on recurring issue severity
+- Auto-generated short training plan tied to detected game issues
 
 ## Run locally
 

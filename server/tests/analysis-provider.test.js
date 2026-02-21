@@ -156,6 +156,36 @@ test('analyzeGameWithEngine bypasses cooldown when explicitly forced', async () 
 });
 
 
+
+
+test('analyzeGameWithEngine does not pin eval source to material after engine recovery', async () => {
+  const originalFetch = global.fetch;
+  const originalNow = Date.now;
+  Date.now = () => originalNow() + 10 * 60_000;
+
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      throw new Error('temporary network down');
+    }
+    return {
+      ok: true,
+      json: async () => ({ eval: 20, move: 'e2e4' }),
+    };
+  };
+
+  const pgn = '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6';
+  await analyzeGameWithEngine(pgn, 'white', 'web');
+  const recovered = await analyzeGameWithEngine(pgn, 'white', 'web', { bypassCooldown: true });
+
+  global.fetch = originalFetch;
+  Date.now = originalNow;
+
+  const playerMoves = recovered.moves.filter((move) => move.isPlayerMove);
+  assert.ok(playerMoves.some((move) => move.evalSource !== 'material'));
+  assert.ok(recovered.quality.engineShare > 0);
+});
 test('buildEngineLineFromFen returns deterministic continuation line', async () => {
   const originalFetch = global.fetch;
   const responses = [
