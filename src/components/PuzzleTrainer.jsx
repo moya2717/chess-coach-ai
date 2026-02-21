@@ -61,15 +61,15 @@ export default function PuzzleTrainer({ pattern, patterns, games = [], onBack, u
   async function onDrop(sourceSquare, targetSquare) {
     if (!puzzle || solved) return false;
     const expectedMove = puzzle.solution[moveIndex];
-    const chosen = `${sourceSquare}${targetSquare}`;
+    const next = new Chess(game.fen());
+    const chosenMove = normalizeChosenMove(next, sourceSquare, targetSquare);
 
-    if (chosen !== expectedMove) {
+    if (!chosenMove || chosenMove !== expectedMove) {
       setTries((value) => value + 1);
       setFeedback('❌ Not the best move. Retry and calculate forcing line.');
       return false;
     }
 
-    const next = new Chess(game.fen());
     const move = applyUciMove(next, expectedMove);
     if (!move) return false;
     setGame(next);
@@ -188,6 +188,13 @@ export default function PuzzleTrainer({ pattern, patterns, games = [], onBack, u
       </div>
     </div>
   );
+}
+
+function normalizeChosenMove(chess, from, to) {
+  const attempt = chess.move({ from, to, promotion: 'q' });
+  if (!attempt) return null;
+  chess.undo();
+  return `${attempt.from}${attempt.to}${attempt.promotion || ''}`;
 }
 
 function applyUciMove(chess, uci) {
