@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
-import { generateCoachComment, generateGameSummary } from '../services/coach';
+import { answerFollowUpQuestion, generateCoachComment, generateGameSummary } from '../services/coach';
 import { analyzePosition } from '../services/analysis';
 import {
   detectTrainingTheme,
@@ -10,12 +10,24 @@ import {
   toSanFromUci,
 } from '../services/critical-moments';
 
-export default function GameReview({ game, onBack, onReanalyzeGames, analysisInProgress = false }) {
+export default function GameReview({
+  game,
+  onBack,
+  onReanalyzeGames,
+  onAnalyzeGame,
+  activeAnalysisGameId = null,
+  analysisInProgress = false,
+}) {
   const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
   const [engineLine, setEngineLine] = useState([]);
   const [engineLineError, setEngineLineError] = useState('');
   const [engineLineLoading, setEngineLineLoading] = useState(false);
   const [enginePreviewIndex, setEnginePreviewIndex] = useState(-1);
+  const [candidateMoves, setCandidateMoves] = useState([]);
+  const [positionAssessment, setPositionAssessment] = useState(null);
+  const [analysisPhase, setAnalysisPhase] = useState('middlegame');
+  const [followUpQuestion, setFollowUpQuestion] = useState('');
+  const [coachReply, setCoachReply] = useState('');
   const [criticalOnly, setCriticalOnly] = useState(false);
   const [selectedCriticalIndex, setSelectedCriticalIndex] = useState(null);
   const [criticalInsights, setCriticalInsights] = useState({});
@@ -53,10 +65,23 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
 
   // Classification styling
 
+
+  useEffect(() => {
+    if (game?.analysis || !game?.id || !onAnalyzeGame) {
+      return;
+    }
+    onAnalyzeGame(game.id);
+  }, [game?.analysis, game?.id, onAnalyzeGame]);
+
   useEffect(() => {
     setEngineLine([]);
     setEngineLineError('');
     setEnginePreviewIndex(-1);
+    setCandidateMoves([]);
+    setPositionAssessment(null);
+    setAnalysisPhase('middlegame');
+    setFollowUpQuestion('');
+    setCoachReply('');
   }, [currentMoveIndex, game.id]);
 
   useEffect(() => {
@@ -113,6 +138,9 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
         forceRefresh: true,
       });
       setEngineLine(result.line || []);
+      setCandidateMoves(result.candidates || []);
+      setPositionAssessment(result.assessment || null);
+      setAnalysisPhase(result.phase || 'middlegame');
       setEnginePreviewIndex(-1);
     } catch (error) {
       setEngineLineError(error.message || 'Failed to fetch engine line');
@@ -121,6 +149,17 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
     } finally {
       setEngineLineLoading(false);
     }
+  };
+
+
+  const handleAskCoach = () => {
+    const reply = answerFollowUpQuestion(followUpQuestion, {
+      currentMove,
+      candidates: candidateMoves,
+      assessment: positionAssessment,
+      phase: analysisPhase,
+    });
+    setCoachReply(reply);
   };
 
   const classMap = {
@@ -274,6 +313,29 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
             )}
           </div>
 
+
+          {!game.analysis && (
+            <div style={{
+              marginTop: 10,
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--accent-blue-dim)',
+              color: 'var(--accent-blue)',
+              fontSize: 12,
+            }}>
+              This game has not been analyzed yet.
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="back-btn"
+                  onClick={() => onAnalyzeGame?.(game.id)}
+                  disabled={analysisInProgress}
+                >
+                  {analysisInProgress && activeAnalysisGameId === game.id ? 'Analyzing this game…' : 'Analyze This Game'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {game.analysisStatus === 'fallback-material' && (
             <div style={{
               marginTop: 10,
@@ -318,6 +380,40 @@ export default function GameReview({ game, onBack, onReanalyzeGames, analysisInP
                 {engineLineLoading ? 'Analyzing…' : 'Analyze Current Position'}
               </button>
             </div>
+
+            {positionAssessment && (
+              <div className="pattern-desc" style={{ marginBottom: 8 }}>
+                <strong>Phase:</strong> {analysisPhase} · <strong>Material edge:</strong> {positionAssessment.materialEdge}
+                <br />
+                <strong>Threats:</strong> {positionAssessment.threats.join(', ')}
+                <br />
+                <strong>Opportunities:</strong> {positionAssessment.opportunities.join(', ')}
+              </div>
+            )}
+            {candidateMoves.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div className="stat-label" style={{ marginBottom: 6 }}>Candidate Moves (Top 3–5)</div>
+                {candidateMoves.slice(0, 5).map((candidate) => (
+                  <div key={candidate.uci} className="pattern-item" style={{ cursor: 'default' }}>
+                    <div className="pattern-name">{candidate.san} · eval {candidate.eval}</div>
+                    <div className="pattern-desc">
+                      {candidate.variation.length ? `Line: ${candidate.variation.join(' ')}` : 'No continuation available.'}
+                      {candidate.concepts.length ? ` · Ideas: ${candidate.concepts.join(', ')}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input
+                value={followUpQuestion}
+                onChange={(e) => setFollowUpQuestion(e.target.value)}
+                placeholder="Ask coach: Was my last move good? Why is this move better?"
+                style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+              />
+              <button className="back-btn" onClick={handleAskCoach}>Ask</button>
+            </div>
+            {coachReply && <div className="pattern-desc" style={{ marginBottom: 8 }}>{coachReply}</div>}
             {engineLineError && <div className="pattern-desc" style={{ color: 'var(--accent-red)' }}>{engineLineError}</div>}
             {engineLine.length === 0 && !engineLineLoading && !engineLineError && (
               <div className="pattern-desc">Run engine line analysis to view best continuation moves from this position.</div>

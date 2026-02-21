@@ -3,7 +3,7 @@ import { TTLCache } from './lib/cache.js';
 import { normalizeUnknownError } from './lib/errors.js';
 import { fetchChesscomRecentGames, fetchChesscomProfile, fetchChesscomStats } from './providers/chesscom-provider.js';
 import { fetchLichessRecentGames, fetchLichessPuzzles, fetchLichessProfile } from './providers/lichess-provider.js';
-import { analyzeGameWithEngine, buildEngineLineFromFen } from './providers/analysis-provider.js';
+import { analyzeGameWithEngine, analyzePositionWithContext } from './providers/analysis-provider.js';
 import {
   getPuzzleProgress,
   buildFallbackPuzzle,
@@ -116,11 +116,11 @@ async function handleAnalyzePosition(req, res) {
     return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'fen is required', retryable: false });
   }
 
-  const line = await buildEngineLineFromFen(fen, engineMode, {
+  const analysis = await analyzePositionWithContext(fen, engineMode, {
     maxPlies,
     bypassCooldown: Boolean(forceRefresh),
   });
-  return sendJson(res, 200, line);
+  return sendJson(res, 200, analysis);
 }
 
 export function createAnalysisCacheKey({ pgn, playerColor = 'white', engineMode = 'auto', cacheKey = '' }) {

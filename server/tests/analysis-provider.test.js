@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeGameWithEngine, buildEngineLineFromFen } from '../providers/analysis-provider.js';
+import { analyzeGameWithEngine, analyzePositionWithContext, buildEngineLineFromFen } from '../providers/analysis-provider.js';
 
 test('analyzeGameWithEngine stops calling remote engine after first failure', async () => {
   const originalFetch = global.fetch;
@@ -164,4 +164,37 @@ test('buildEngineLineFromFen returns deterministic continuation line', async () 
   assert.equal(line.line.length, 3);
   assert.deepEqual(line.line.map((step) => step.san), ['e4', 'e5', 'Nf3']);
   assert.equal(line.quality, 'engine');
+});
+
+
+test('analyzePositionWithContext returns candidate moves, phase, and assessment', async () => {
+  const originalFetch = global.fetch;
+  const cycle = [
+    { eval: 20, move: 'e2e4' },
+    { eval: 10, move: 'e7e5' },
+    { eval: 25, move: 'g1f3' },
+    { eval: 22, move: 'e7e5' },
+    { eval: 18, move: 'd2d4' },
+    { eval: 16, move: 'c7c5' },
+    { eval: 14, move: 'g8f6' },
+  ];
+  let index = 0;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => cycle[index++ % cycle.length],
+  });
+
+  const result = await analyzePositionWithContext('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 'web', {
+    maxPlies: 3,
+    bypassCooldown: true,
+  });
+
+  global.fetch = originalFetch;
+
+  assert.equal(Array.isArray(result.line), true);
+  assert.equal(Array.isArray(result.candidates), true);
+  assert.equal(result.candidates.length > 0, true);
+  assert.equal(typeof result.phase, 'string');
+  assert.equal(typeof result.assessment.materialEdge, 'number');
+  assert.equal(Array.isArray(result.assessment.threats), true);
 });

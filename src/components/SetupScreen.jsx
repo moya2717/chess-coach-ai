@@ -21,9 +21,9 @@ export default function SetupScreen({ onSubmit, error }) {
       <div className="hero-icon animate-in">♞</div>
       <h2 className="animate-in delay-1">Welcome to ChessCoach AI</h2>
       <p className="animate-in delay-2">
-        Connect your chess accounts and I'll analyze your games, find your
-        recurring patterns, and coach you through your weaknesses — in plain
-        English, like a real coach sitting next to you.
+        Connect your chess accounts, load your recent games, then analyze each game
+        on demand as you click into it. As manual reviews accumulate, pattern
+        detection and coaching become more accurate.
       </p>
       {error && (
         <div style={{
@@ -79,7 +79,7 @@ export default function SetupScreen({ onSubmit, error }) {
           disabled={!canAnalyze}
           onClick={() => onSubmit({ chesscomUser, lichessUser, uploadedPgn, engineMode, timeWindow })}
         >
-          Analyze My Games →
+          Load My Games →
         </button>
       </div>
     </div>

@@ -8,7 +8,7 @@ import { apiPost } from './api-client';
 export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto', options = {}) {
   const chess = new Chess();
   try {
-    chess.loadPgn(pgn);
+    chess.loadPgn(pgn, { strict: false });
   } catch {
     throw new Error('Invalid PGN format');
   }

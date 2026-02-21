@@ -11,6 +11,7 @@ export default function Dashboard({
   analysisInProgress = false,
 }) {
   const totalGames = games.length;
+  const analyzedGames = games.filter((g) => Boolean(g.analysis)).length;
   const wins = games.filter((g) => g.result === 'win').length;
   const losses = games.filter((g) => g.result === 'loss').length;
   const draws = games.filter((g) => g.result === 'draw').length;
@@ -30,7 +31,7 @@ export default function Dashboard({
       <div className="stat-cards">
         <div className="stat-card animate-in delay-1">
           <div className="stat-label">Games Analyzed</div>
-          <div className="stat-value">{totalGames}</div>
+          <div className="stat-value">{analyzedGames}/{totalGames}</div>
           <div className="stat-detail">{wins}W / {draws}D / {losses}L</div>
         </div>
         <div className="stat-card animate-in delay-2">
@@ -69,7 +70,7 @@ export default function Dashboard({
           </button>
         </div>
         {reviewQueue.length === 0 ? (
-          <div className="pattern-desc">No critical games detected yet. Keep analyzing new games.</div>
+          <div className="pattern-desc">Analyze games from Recent Games to build your review queue.</div>
         ) : (
           reviewQueue.map((item) => (
             <div key={item.id} className="pattern-item" onClick={() => onSelectGame(item)}>
@@ -242,10 +243,12 @@ function getReviewScore(game) {
 
 
 function formatAnalysisStatus(status) {
+  if (!status) return 'Not analyzed yet';
   if (status === 'fallback-material') return 'Limited engine depth';
   return 'Deep analyzed';
 }
 
 function getAnalysisStatusBadgeClass(status) {
+  if (!status) return 'badge-blue';
   return status === 'fallback-material' ? 'badge-amber' : 'badge-blue';
 }
