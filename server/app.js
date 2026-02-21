@@ -3,7 +3,7 @@ import { TTLCache } from './lib/cache.js';
 import { normalizeUnknownError } from './lib/errors.js';
 import { fetchChesscomRecentGames, fetchChesscomProfile, fetchChesscomStats } from './providers/chesscom-provider.js';
 import { fetchLichessRecentGames, fetchLichessPuzzles, fetchLichessProfile } from './providers/lichess-provider.js';
-import { analyzeGameWithEngine } from './providers/analysis-provider.js';
+import { analyzeGameWithEngine, buildEngineLineFromFen } from './providers/analysis-provider.js';
 import {
   getPuzzleProgress,
   buildFallbackPuzzle,
@@ -24,6 +24,7 @@ export function createHandler() {
       if (req.method === 'GET' && url.pathname === '/api/profile') return handleProfile(url, res);
       if (req.method === 'GET' && url.pathname === '/api/stats') return handleStats(url, res);
       if (req.method === 'POST' && url.pathname === '/api/analyze') return handleAnalyze(req, res);
+      if (req.method === 'POST' && url.pathname === '/api/analyze-position') return handleAnalyzePosition(req, res);
       if (req.method === 'GET' && url.pathname === '/api/puzzle') return handlePuzzle(url, res);
       if (req.method === 'GET' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgress(url, res);
       if (req.method === 'POST' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgressUpdate(req, res);
@@ -84,15 +85,42 @@ async function handleGames(url, res) {
 
 async function handleAnalyze(req, res) {
   const body = await readJsonBody(req);
-  const { pgn, playerColor = 'white', cacheKey = '', engineMode = 'auto' } = body;
+  const { pgn, playerColor = 'white', cacheKey = '', engineMode = 'auto', forceRefresh = false } = body;
 
   if (!pgn) {
     return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'pgn is required', retryable: false });
   }
 
+  if (forceRefresh) {
+    const fresh = await analyzeGameWithEngine(pgn, playerColor, engineMode, { bypassCooldown: true });
+    return sendJson(res, 200, fresh);
+  }
+
   const key = createAnalysisCacheKey({ pgn, playerColor, engineMode, cacheKey });
   const analysis = await evalCache.getOrSet(key, () => analyzeGameWithEngine(pgn, playerColor, engineMode));
   return sendJson(res, 200, analysis);
+}
+
+
+
+async function handleAnalyzePosition(req, res) {
+  const body = await readJsonBody(req);
+  const {
+    fen,
+    engineMode = 'auto',
+    maxPlies = 6,
+    forceRefresh = false,
+  } = body;
+
+  if (!fen) {
+    return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'fen is required', retryable: false });
+  }
+
+  const line = await buildEngineLineFromFen(fen, engineMode, {
+    maxPlies,
+    bypassCooldown: Boolean(forceRefresh),
+  });
+  return sendJson(res, 200, line);
 }
 
 export function createAnalysisCacheKey({ pgn, playerColor = 'white', engineMode = 'auto', cacheKey = '' }) {
