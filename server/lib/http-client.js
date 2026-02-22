@@ -68,11 +68,19 @@ export async function requestWithRetry(url, config = {}) {
       return await parseResponse(response, responseType);
     } catch (error) {
       clearTimeout(timeoutId);
+      const isApiError = error instanceof ApiError;
       const timedOut = error?.name === 'AbortError';
       const isFinalAttempt = attempt >= retries;
+
       if (!isFinalAttempt) {
-        await sleep(backoffMs * (attempt + 1));
-        continue;
+        if (!isApiError || error.retryable) {
+          await sleep(backoffMs * (attempt + 1));
+          continue;
+        }
+      }
+
+      if (isApiError) {
+        throw error;
       }
 
       throw new ApiError({
