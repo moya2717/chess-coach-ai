@@ -7,7 +7,6 @@ import { apiGet, apiPost } from './api-client';
 
 const ANALYSIS_JOB_POLL_MS = 1200;
 const ANALYSIS_JOB_TIMEOUT_MS = 120000;
-const ENABLE_ASYNC_ANALYSIS_JOBS = import.meta.env.VITE_ENABLE_ASYNC_ANALYSIS_JOBS === 'true';
 
 export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto', options = {}) {
   const chess = new Chess();
@@ -30,28 +29,11 @@ export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto
     try {
       return await analyzeGameViaJob(payload, options);
     } catch {
-      // Fall back to synchronous endpoint for compatibility and serverless reliability.
+      // Fall back to synchronous endpoint for compatibility and local dev reliability.
     }
   }
 
-  return analyzeGameSync(payload);
-}
-
-async function analyzeGameSync(payload) {
-  let attempt = 0;
-  while (attempt < 2) {
-    try {
-      return await apiPost('/api/analyze', payload, { timeout: 120000 });
-    } catch (error) {
-      attempt += 1;
-      if (attempt >= 2) {
-        throw error;
-      }
-      await sleep(500);
-    }
-  }
-
-  throw new Error('Analysis request failed');
+  return apiPost('/api/analyze', payload, { timeout: 120000 });
 }
 
 async function analyzeGameViaJob(payload, options = {}) {
@@ -89,7 +71,7 @@ function sleep(ms) {
 
 function shouldUseAsyncAnalysis(options = {}) {
   if (typeof options.useAsyncJob === 'boolean') return options.useAsyncJob;
-  return ENABLE_ASYNC_ANALYSIS_JOBS;
+  return true;
 }
 
 export async function analyzePosition(fen, { engineMode = 'auto', maxPlies = 6, forceRefresh = false } = {}) {
