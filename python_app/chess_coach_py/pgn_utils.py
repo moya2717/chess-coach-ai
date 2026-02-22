@@ -30,3 +30,14 @@ def parse_pgn_bundle(pgn_bundle: str, source: str = "upload") -> list[GameRecord
         )
         idx += 1
     return games
+
+
+def infer_player_color(game: GameRecord, username: str) -> str | None:
+    normalized = username.strip().lower()
+    if not normalized:
+        return None
+    if game.white.strip().lower() == normalized:
+        return "white"
+    if game.black.strip().lower() == normalized:
+        return "black"
+    return None
