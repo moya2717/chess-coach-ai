@@ -8,6 +8,7 @@ from chess_coach_py.analysis import analyze_pgn_for_issues, summarize_issues, tr
 from chess_coach_py.clients import fetch_chesscom_games, fetch_lichess_games
 from chess_coach_py.models import GameRecord
 from chess_coach_py.pgn_utils import parse_pgn_bundle
+from chess_coach_py.review import extract_moves_and_states, resolve_tracked_color
 
 MAX_GAMES = 30
 
@@ -33,6 +34,51 @@ def _render_metrics(summary: dict[str, int | str]) -> None:
     c4.metric("Largest drop", int(summary["largest_drop"]))
 
 
+def _render_board(board, orientation: str) -> None:
+    import chess
+    import chess.svg
+
+    svg = chess.svg.board(board=board, size=520, orientation=chess.WHITE if orientation == "white" else chess.BLACK)
+    st.components.v1.html(svg, height=540)
+
+
+def _render_interactive_analyzer(game: GameRecord, tracked_color: str, username: str) -> None:
+    states, moves = extract_moves_and_states(game.pgn)
+    if states is None:
+        st.error("Unable to parse PGN for interactive analysis.")
+        return
+
+    resolved_color, reason = resolve_tracked_color(game, username, tracked_color)
+    issues = analyze_pgn_for_issues(game.pgn, tracked_color=resolved_color)
+    summary = summarize_issues(issues)
+    plan = training_plan(issues)
+
+    st.caption(reason)
+    st.subheader("Performance overview")
+    _render_metrics(summary)
+    st.info(str(summary["focus"]))
+
+    st.subheader("Interactive board")
+    max_ply = len(states) - 1
+    ply = st.slider("Move index", min_value=0, max_value=max_ply, value=0)
+    cols = st.columns(2)
+    with cols[0]:
+        _render_board(states[ply], orientation=resolved_color)
+    with cols[1]:
+        st.write("Start position" if ply == 0 else f"Move {ply}: {moves[ply - 1]}")
+        st.code(game.pgn, language="pgn")
+
+    st.subheader("Detected mistakes")
+    if not issues:
+        st.success("No significant material-loss issues detected in this game.")
+    else:
+        st.dataframe([issue.__dict__ for issue in issues], use_container_width=True)
+
+    st.subheader("Training plan")
+    for idx, step in enumerate(plan, start=1):
+        st.write(f"{idx}. {step}")
+
+
 def main() -> None:
     st.set_page_config(page_title="Chess Coach (Python)", layout="wide")
     st.title("♟️ Chess Coach — Python Interactive App")
@@ -42,8 +88,9 @@ def main() -> None:
         st.header("Data Sources")
         chesscom_user = st.text_input("Chess.com username")
         lichess_user = st.text_input("Lichess username")
+        verify_username = st.text_input("Username to verify game color")
         days_back = st.selectbox("Time window", options=[7, 30, 90], index=1)
-        tracked_color = st.radio("Analyze mistakes for", options=["white", "black"], horizontal=True)
+        tracked_color = st.radio("Fallback analysis color", options=["white", "black"], horizontal=True)
         pgn_upload = st.text_area("Optional PGN input", height=180)
         run = st.button("Load games", type="primary")
 
@@ -66,29 +113,10 @@ def main() -> None:
     labels = [f"{g.date} • {g.white} vs {g.black} ({g.source})" for g in games]
     selected_idx = st.selectbox("Select a game", options=range(len(games)), format_func=lambda i: labels[i])
     selected = games[selected_idx]
-    issues = analyze_pgn_for_issues(selected.pgn, tracked_color=tracked_color)
-    summary = summarize_issues(issues)
-    plan = training_plan(issues)
 
     st.subheader("Game summary")
     st.write({"white": selected.white, "black": selected.black, "result": selected.result, "source": selected.source})
-
-    st.subheader("Performance overview")
-    _render_metrics(summary)
-    st.info(str(summary["focus"]))
-
-    st.subheader("Detected mistakes")
-    if not issues:
-        st.success("No significant material-loss issues detected in this game.")
-    else:
-        st.dataframe([issue.__dict__ for issue in issues], use_container_width=True)
-
-    st.subheader("Training plan")
-    for idx, step in enumerate(plan, start=1):
-        st.write(f"{idx}. {step}")
-
-    with st.expander("PGN"):
-        st.code(selected.pgn, language="pgn")
+    _render_interactive_analyzer(selected, tracked_color=tracked_color, username=verify_username)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,8 @@ Python-first interactive Chess Coach built with Streamlit.
 ## What's improved
 
 - Per-game performance metrics (issue counts, blunders, largest material drop)
+- Username-based color verification per game (auto-detect white/black when names match headers)
+- Interactive move-by-move board explorer with SAN move context
 - Actionable focus guidance based on recurring issue severity
 - Auto-generated short training plan tied to detected game issues
 
