@@ -24,6 +24,7 @@ export function createHandler() {
   return async function handler(req, res) {
     try {
       const url = new URL(req.url, 'http://localhost');
+      if (req.method === 'GET' && url.pathname === '/api/health') return handleHealth(res);
       if (req.method === 'GET' && url.pathname === '/api/games') return handleGames(url, res);
       if (req.method === 'GET' && url.pathname === '/api/profile') return handleProfile(url, res);
       if (req.method === 'GET' && url.pathname === '/api/stats') return handleStats(url, res);
@@ -51,6 +52,13 @@ export function createHandler() {
   };
 }
 
+function handleHealth(res) {
+  return sendJson(res, 200, {
+    ok: true,
+    service: 'chess-coach-api',
+    timestamp: new Date().toISOString(),
+  });
+}
 
 async function handleProfile(url, res) {
   const username = (url.searchParams.get('username') || '').trim();
@@ -111,10 +119,6 @@ async function handleAnalyze(req, res) {
   return sendJson(res, 200, analysis);
 }
 
-
-
-
-
 async function handleAnalyzeJobsCreate(req, res) {
   const body = await readJsonBody(req);
   if (!body.pgn) {
@@ -154,6 +158,7 @@ async function handlePatternClusters(req, res) {
   const payload = await buildPatternClusters(body.games || []);
   return sendJson(res, 200, payload);
 }
+
 async function handleAnalyzePosition(req, res) {
   const body = await readJsonBody(req);
   const {
@@ -191,7 +196,6 @@ async function handlePuzzle(url, res) {
   }
 }
 
-
 async function handlePuzzlePlan(req, res) {
   const body = await readJsonBody(req);
   const games = Array.isArray(body.games) ? body.games : [];
@@ -216,8 +220,6 @@ async function handlePuzzleProgressUpdate(req, res) {
   const progress = recordPuzzleAttempt({ userKey, pattern, solved, tries, timeSpent });
   return sendJson(res, 200, progress);
 }
-
-
 
 function handleAnalysisRunsList(url, res) {
   const userId = (url.searchParams.get('userId') || '').trim();
@@ -245,6 +247,7 @@ async function handleAnalysisRunsCreate(req, res) {
   });
   return sendJson(res, 201, run);
 }
+
 function filterByDate(games, dateFrom, dateTo) {
   if (!dateFrom && !dateTo) return games;
   return games.filter((game) => {
