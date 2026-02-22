@@ -104,6 +104,7 @@ export async function analyzeGameWithEngine(pgn, playerColor = 'white', engineMo
       endgame: avg(endgameAccuracy),
     },
     quality: summarizeAnalysisQuality(analyzedMoves),
+    impactfulMoves: summarizeImpactfulMoves(analyzedMoves),
   };
 }
 
@@ -146,7 +147,6 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
   const currentEval = afterEvaluation?.eval || 0;
   const previousEval = beforeEvaluation.eval || 0;
   const evalDrop = getEvalDrop({
-    isPlayerMove,
     isWhiteMove: index % 2 === 0,
     previousEval,
     currentEval,
@@ -155,9 +155,7 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
   const evalSource = mergeEvalSources(beforeEvaluation.source, afterEvaluation.source);
   const bestMoveUci = beforeEvaluation.bestMove || null;
   const playerMatchedBestMove = bestMoveUci ? toUciMove(move) === bestMoveUci : false;
-  const classification = isPlayerMove
-    ? classifyMove({ evalDrop, evalSource, moveIndex, playerMatchedBestMove })
-    : 'book';
+  const classification = classifyMove({ evalDrop, evalSource, moveIndex, playerMatchedBestMove });
 
   return {
     num: Math.floor(index / 2) + 1,
@@ -178,12 +176,31 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
     bestMove: bestMoveUci,
     playerMatchedBestMove,
     moveScore: computeMoveScore(evalSource, evalDrop),
+    impact: evalDrop >= 1 ? 'high' : evalDrop >= 0.45 ? 'medium' : 'low',
+    isImpactful: evalDrop >= 0.45,
     afterEvaluation,
   };
 }
 
 
 
+
+function summarizeImpactfulMoves(moves) {
+  return moves
+    .filter((move) => move.isImpactful)
+    .sort((a, b) => b.evalDrop - a.evalDrop)
+    .slice(0, 8)
+    .map((move) => ({
+      num: move.num,
+      san: move.san,
+      isPlayerMove: move.isPlayerMove,
+      classification: move.classification,
+      evalDrop: move.evalDrop,
+      phase: move.phase,
+      bestMove: move.bestMove,
+      fenBefore: move.fenBefore,
+    }));
+}
 
 function summarizeAnalysisQuality(moves) {
   const playerMoves = moves.filter((move) => move.isPlayerMove);
@@ -215,8 +232,7 @@ function computeMoveScore(evalSource, evalDrop) {
   return Math.max(0, Math.round(100 - evalDrop * 30));
 }
 
-function getEvalDrop({ isPlayerMove, isWhiteMove, previousEval, currentEval }) {
-  if (!isPlayerMove) return 0;
+function getEvalDrop({ isWhiteMove, previousEval, currentEval }) {
   return isWhiteMove ? Math.max(0, previousEval - currentEval) : Math.max(0, currentEval - previousEval);
 }
 
