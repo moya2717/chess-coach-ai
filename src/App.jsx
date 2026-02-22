@@ -245,8 +245,12 @@ function App() {
 
     const authUserId = getAuthUserId(authUser);
     if (authUserId) {
-      await recordAnalysisRun({ userId: authUserId, usernames, games: nextGames, patterns: resolvedPatterns });
-      setAnalysisRuns(await listAnalysisRuns(authUserId));
+      try {
+        await recordAnalysisRun({ userId: authUserId, usernames, games: nextGames, patterns: resolvedPatterns });
+        setAnalysisRuns(await listAnalysisRuns(authUserId));
+      } catch (historyError) {
+        console.warn('Could not persist analysis run metadata:', historyError?.message || historyError);
+      }
     }
   }, [authUser, games, usernames]);
 
@@ -613,6 +617,10 @@ async function refreshAnalysisInBackground({
       setPatterns(resolvePatterns(refreshedGames));
     } catch (err) {
       console.warn(`Background refinement failed for game ${i}:`, err.message);
+      game.analysis = buildMaterialFallbackAnalysisFromPgn(game.pgn, game.playerColor);
+      game.analysisStatus = 'fallback-material';
+      setGames([...refreshedGames]);
+      setPatterns(resolvePatterns(refreshedGames));
     }
     setAnalysisProgress({ active: true, completed: i + 1, total: refreshedGames.length });
   }
@@ -623,13 +631,17 @@ async function refreshAnalysisInBackground({
 
   const authUserId = getAuthUserId(authUser);
   if (authUserId) {
-    await recordAnalysisRun({
-      userId: authUserId,
-      usernames,
-      games: refreshedGames,
-      patterns: resolvedPatterns,
-    });
-    setAnalysisRuns(await listAnalysisRuns(authUserId));
+    try {
+      await recordAnalysisRun({
+        userId: authUserId,
+        usernames,
+        games: refreshedGames,
+        patterns: resolvedPatterns,
+      });
+      setAnalysisRuns(await listAnalysisRuns(authUserId));
+    } catch (historyError) {
+      console.warn('Could not persist background analysis run metadata:', historyError?.message || historyError);
+    }
   }
 
   setAnalysisProgress((prev) => ({ ...prev, active: false }));

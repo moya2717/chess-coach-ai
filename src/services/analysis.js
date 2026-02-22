@@ -3,7 +3,11 @@
 // ═══════════════════════════════════════════
 
 import { Chess } from 'chess.js';
-import { apiPost } from './api-client';
+import { apiGet, apiPost } from './api-client';
+
+const ANALYSIS_JOB_POLL_MS = 1200;
+const ANALYSIS_JOB_TIMEOUT_MS = 120000;
+const ENABLE_ASYNC_ANALYSIS_JOBS = import.meta.env.VITE_ENABLE_ASYNC_ANALYSIS_JOBS === 'true';
 
 export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto', options = {}) {
   const chess = new Chess();
@@ -13,15 +17,80 @@ export async function analyzeGame(pgn, playerColor = 'white', engineMode = 'auto
     throw new Error('Invalid PGN format');
   }
 
-  return apiPost('/api/analyze', {
+  const payload = {
     pgn,
     playerColor,
     cacheKey: buildAnalysisCacheKey({ pgn, headers: chess.header(), playerColor, engineMode }),
     engineMode,
     forceRefresh: Boolean(options.forceRefresh),
-  }, { timeout: 120000 });
+  };
+
+  const useAsyncJob = shouldUseAsyncAnalysis(options);
+  if (useAsyncJob) {
+    try {
+      return await analyzeGameViaJob(payload, options);
+    } catch {
+      // Fall back to synchronous endpoint for compatibility and serverless reliability.
+    }
+  }
+
+  return analyzeGameSync(payload);
 }
 
+async function analyzeGameSync(payload) {
+  let attempt = 0;
+  while (attempt < 2) {
+    try {
+      return await apiPost('/api/analyze', payload, { timeout: 120000 });
+    } catch (error) {
+      attempt += 1;
+      if (attempt >= 2) {
+        throw error;
+      }
+      await sleep(500);
+    }
+  }
+
+  throw new Error('Analysis request failed');
+}
+
+async function analyzeGameViaJob(payload, options = {}) {
+  const job = await apiPost('/api/analyze-jobs', {
+    pgn: payload.pgn,
+    playerColor: payload.playerColor,
+    engineMode: payload.engineMode,
+  }, { timeout: 15000 });
+
+  if (!job?.id) {
+    throw new Error('Analysis job did not return an id');
+  }
+
+  const timeoutMs = Number(options.jobTimeoutMs || ANALYSIS_JOB_TIMEOUT_MS);
+  const pollMs = Number(options.jobPollMs || ANALYSIS_JOB_POLL_MS);
+  return pollAnalysisJob(job.id, timeoutMs, pollMs);
+}
+
+async function pollAnalysisJob(jobId, timeoutMs, pollMs) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const job = await apiGet('/api/analyze-jobs', { id: jobId });
+    if (job?.status === 'completed' && job.result) return job.result;
+    if (job?.status === 'failed') throw new Error(job.error || 'Analysis job failed');
+    await sleep(pollMs);
+  }
+
+  throw new Error('Analysis job timed out');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldUseAsyncAnalysis(options = {}) {
+  if (typeof options.useAsyncJob === 'boolean') return options.useAsyncJob;
+  return ENABLE_ASYNC_ANALYSIS_JOBS;
+}
 
 export async function analyzePosition(fen, { engineMode = 'auto', maxPlies = 6, forceRefresh = false } = {}) {
   if (!fen) {
