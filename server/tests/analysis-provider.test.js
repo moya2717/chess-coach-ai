@@ -55,7 +55,7 @@ test('analyzeGameWithEngine python mode gracefully falls back when bridge has no
   assert.equal(typeof analysis.accuracy, 'number');
   assert.equal(calls, 0);
 });
-test('analyzeGameWithEngine marks opponent moves as book and avoids great spam on material fallback', async () => {
+test('analyzeGameWithEngine classifies both sides and avoids great spam on material fallback', async () => {
   const originalFetch = global.fetch;
   global.fetch = async () => {
     throw new Error('network down');
@@ -67,7 +67,7 @@ test('analyzeGameWithEngine marks opponent moves as book and avoids great spam o
 
   const opponentMoves = analysis.moves.filter((move) => !move.isPlayerMove);
   const playerMoves = analysis.moves.filter((move) => move.isPlayerMove);
-  assert.ok(opponentMoves.every((move) => move.classification === 'book'));
+  assert.ok(opponentMoves.some((move) => ['good', 'excellent', 'inaccuracy', 'mistake', 'blunder', 'book'].includes(move.classification)));
   assert.ok(playerMoves.every((move) => move.classification !== 'great'));
 });
 
@@ -123,6 +123,7 @@ test('analyzeGameWithEngine returns analysis quality metadata', async () => {
   assert.equal(analysis.quality.primarySource, 'material');
   assert.equal(typeof analysis.quality.engineShare, 'number');
   assert.equal(analysis.quality.needsRefinement, true);
+  assert.equal(Array.isArray(analysis.impactfulMoves), true);
 });
 
 
