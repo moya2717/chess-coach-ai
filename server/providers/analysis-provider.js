@@ -302,12 +302,7 @@ async function getStockfishEval(fen, depth = 14, engineMode = 'auto', options = 
 async function getWebEvalWithFallback(fen, depth, options = {}) {
   if (!options.bypassCooldown && !isEngineAvailable()) return { eval: estimateMaterialEval(fen), source: 'material' };
   try {
-    const data = await requestWithRetry('https://chess-api.com/v1', {
-      params: { fen, depth },
-      timeoutMs: 2_500,
-      retries: 0,
-    });
-
+    const data = await fetchWebEngineEval(fen, depth);
     return {
       eval: data.eval ? data.eval / 100 : 0,
       bestMove: data.move || null,
@@ -318,6 +313,25 @@ async function getWebEvalWithFallback(fen, depth, options = {}) {
   } catch {
     markEngineUnavailable();
     return { eval: estimateMaterialEval(fen), source: 'material' };
+  }
+}
+
+async function fetchWebEngineEval(fen, depth) {
+  try {
+    return await requestWithRetry('https://chess-api.com/v1', {
+      params: { fen, depth },
+      timeoutMs: 2_500,
+      retries: 0,
+    });
+  } catch (error) {
+    if (error?.status !== 405) throw error;
+    return requestWithRetry('https://chess-api.com/v1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fen, depth }),
+      timeoutMs: 2_500,
+      retries: 0,
+    });
   }
 }
 
