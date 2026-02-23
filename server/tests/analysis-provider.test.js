@@ -216,6 +216,33 @@ test('buildEngineLineFromFen returns deterministic continuation line', async () 
 });
 
 
+
+test('web engine retries with POST when upstream rejects GET with 405', async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+
+  global.fetch = async (url, init = {}) => {
+    calls.push({ method: init.method || 'GET', url: String(url) });
+    if ((init.method || 'GET') === 'GET') {
+      return { ok: false, status: 405, json: async () => ({}) };
+    }
+    return { ok: true, json: async () => ({ eval: 33, move: 'e2e4', depth: 12 }) };
+  };
+
+  const line = await buildEngineLineFromFen(
+    'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    'web',
+    { maxPlies: 1, bypassCooldown: true },
+  );
+
+  global.fetch = originalFetch;
+
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map((entry) => entry.method), ['GET', 'POST']);
+  assert.equal(line.line.length, 1);
+  assert.equal(line.line[0].san, 'e4');
+});
+
 test('analyzePositionWithContext returns candidate moves, phase, and assessment', async () => {
   const originalFetch = global.fetch;
   const cycle = [
