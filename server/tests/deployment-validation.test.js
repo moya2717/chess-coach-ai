@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHandler } from '../app.js';
 
-function makeRequest(url) {
-  return { method: 'GET', url };
+function makeRequest(url, method = 'GET') {
+  return { method, url };
 }
 
 function makeResponse() {
@@ -48,4 +48,16 @@ test('vite dev proxy forwards /api to local backend host', async () => {
   const raw = await readFile(new URL('../../vite.config.js', import.meta.url), 'utf8');
 
   assert.match(raw, /target:\s*'http:\/\/localhost:3001'/);
+});
+
+test('analyze-position legacy GET routes are available for compatibility', async () => {
+  const handler = createHandler();
+
+  const dashCaseResponse = makeResponse();
+  await handler(makeRequest('/api/analyze-position'), dashCaseResponse);
+  assert.equal(dashCaseResponse.status, 400);
+
+  const snakeCaseResponse = makeResponse();
+  await handler(makeRequest('/api/analyze_position'), snakeCaseResponse);
+  assert.equal(snakeCaseResponse.status, 400);
 });
