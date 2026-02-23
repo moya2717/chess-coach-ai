@@ -32,6 +32,9 @@ export function createHandler() {
       if (req.method === 'POST' && url.pathname === '/api/analyze-jobs') return handleAnalyzeJobsCreate(req, res);
       if (req.method === 'GET' && url.pathname === '/api/analyze-jobs') return handleAnalyzeJobsStatus(url, res);
       if (req.method === 'POST' && url.pathname === '/api/analyze-position') return handleAnalyzePosition(req, res);
+      if (req.method === 'GET' && url.pathname === '/api/analyze-position') return handleAnalyzePositionLegacy(url, res);
+      if (req.method === 'POST' && url.pathname === '/api/analyze_position') return handleAnalyzePosition(req, res);
+      if (req.method === 'GET' && url.pathname === '/api/analyze_position') return handleAnalyzePositionLegacy(url, res);
       if (req.method === 'GET' && url.pathname === '/api/puzzle') return handlePuzzle(url, res);
       if (req.method === 'GET' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgress(url, res);
       if (req.method === 'POST' && url.pathname === '/api/puzzle-progress') return handlePuzzleProgressUpdate(req, res);
@@ -167,6 +170,20 @@ async function handleAnalyzePosition(req, res) {
     maxPlies = 6,
     forceRefresh = false,
   } = body;
+
+  return runPositionAnalysis({ fen, engineMode, maxPlies, forceRefresh }, res);
+}
+
+function handleAnalyzePositionLegacy(url, res) {
+  const fen = (url.searchParams.get('fen') || '').trim();
+  const engineMode = (url.searchParams.get('engineMode') || 'auto').trim();
+  const maxPlies = Number(url.searchParams.get('maxPlies') || 6);
+  const forceRefresh = url.searchParams.get('forceRefresh') === 'true';
+
+  return runPositionAnalysis({ fen, engineMode, maxPlies, forceRefresh }, res);
+}
+
+async function runPositionAnalysis({ fen, engineMode, maxPlies, forceRefresh }, res) {
 
   if (!fen) {
     return sendJson(res, 400, { code: 'VALIDATION_ERROR', message: 'fen is required', retryable: false });

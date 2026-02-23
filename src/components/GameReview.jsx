@@ -17,6 +17,8 @@ export default function GameReview({
   onAnalyzeGame,
   activeAnalysisGameId = null,
   analysisInProgress = false,
+  persistedEngineCache = null,
+  onPersistEngineCache = null,
 }) {
   const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
   const [engineLine, setEngineLine] = useState([]);
@@ -26,6 +28,8 @@ export default function GameReview({
   const [candidateMoves, setCandidateMoves] = useState([]);
   const [positionAssessment, setPositionAssessment] = useState(null);
   const [analysisPhase, setAnalysisPhase] = useState('middlegame');
+  const [analysisQuality, setAnalysisQuality] = useState('limited');
+  const [engineAnalysisCache, setEngineAnalysisCache] = useState(() => persistedEngineCache || {});
   const [followUpQuestion, setFollowUpQuestion] = useState('');
   const [coachReply, setCoachReply] = useState('');
   const [criticalOnly, setCriticalOnly] = useState(false);
@@ -74,15 +78,32 @@ export default function GameReview({
   }, [game?.analysis, game?.id, onAnalyzeGame]);
 
   useEffect(() => {
+    setEngineAnalysisCache(persistedEngineCache || {});
+  }, [game.id, persistedEngineCache]);
+
+  useEffect(() => {
+    const cached = engineAnalysisCache[baseFen];
+    if (cached) {
+      setEngineLine(cached.line || []);
+      setCandidateMoves(cached.candidates || []);
+      setPositionAssessment(cached.assessment || null);
+      setAnalysisPhase(cached.phase || 'middlegame');
+      setAnalysisQuality(cached.quality || 'limited');
+      setEngineLineError('');
+      setEnginePreviewIndex(-1);
+      return;
+    }
+
     setEngineLine([]);
     setEngineLineError('');
     setEnginePreviewIndex(-1);
     setCandidateMoves([]);
     setPositionAssessment(null);
     setAnalysisPhase('middlegame');
+    setAnalysisQuality('limited');
     setFollowUpQuestion('');
     setCoachReply('');
-  }, [currentMoveIndex, game.id]);
+  }, [baseFen, engineAnalysisCache]);
 
   useEffect(() => {
     setCriticalOnly(false);
@@ -141,10 +162,26 @@ export default function GameReview({
       setCandidateMoves(result.candidates || []);
       setPositionAssessment(result.assessment || null);
       setAnalysisPhase(result.phase || 'middlegame');
+      setAnalysisQuality(result.quality || 'limited');
       setEnginePreviewIndex(-1);
+      setEngineAnalysisCache((prev) => {
+        const next = {
+          ...prev,
+          [baseFen]: {
+            line: result.line || [],
+            candidates: result.candidates || [],
+            assessment: result.assessment || null,
+            phase: result.phase || 'middlegame',
+            quality: result.quality || 'limited',
+          },
+        };
+        onPersistEngineCache?.(next);
+        return next;
+      });
     } catch (error) {
       setEngineLineError(error.message || 'Failed to fetch engine line');
       setEngineLine([]);
+      setAnalysisQuality('limited');
       setEnginePreviewIndex(-1);
     } finally {
       setEngineLineLoading(false);
@@ -415,6 +452,11 @@ export default function GameReview({
             </div>
             {coachReply && <div className="pattern-desc" style={{ marginBottom: 8 }}>{coachReply}</div>}
             {engineLineError && <div className="pattern-desc" style={{ color: 'var(--accent-red)' }}>{engineLineError}</div>}
+            {!engineLineError && !engineLineLoading && analysisQuality === 'limited' && candidateMoves.length > 0 && (
+              <div className="pattern-desc" style={{ color: 'var(--accent-amber)', marginBottom: 8 }}>
+                Live Stockfish depth is currently unavailable; showing heuristic candidate moves for this position.
+              </div>
+            )}
             {engineLine.length === 0 && !engineLineLoading && !engineLineError && (
               <div className="pattern-desc">Run engine line analysis to view best continuation moves from this position.</div>
             )}
