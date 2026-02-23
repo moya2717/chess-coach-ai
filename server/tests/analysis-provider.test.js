@@ -247,3 +247,22 @@ test('analyzePositionWithContext returns candidate moves, phase, and assessment'
   assert.equal(typeof result.assessment.materialEdge, 'number');
   assert.equal(Array.isArray(result.assessment.threats), true);
 });
+
+
+test('material fallback applies heuristic penalties to avoid flat move classifications', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => {
+    throw new Error('network down');
+  };
+
+  const pgn = '1. e4 e5 2. Qh5 Nc6 3. Qf3 Nf6 4. Bc4 Nd4';
+  const analysis = await analyzeGameWithEngine(pgn, 'white', 'web');
+  global.fetch = originalFetch;
+
+  const playerMoves = analysis.moves.filter((move) => move.isPlayerMove);
+  const queenMoves = playerMoves.filter((move) => move.san.startsWith('Q'));
+
+  assert.equal(analysis.quality.primarySource, 'material');
+  assert.ok(queenMoves.some((move) => move.evalDrop >= 0.45));
+  assert.ok(playerMoves.some((move) => ['inaccuracy', 'mistake', 'blunder'].includes(move.classification)));
+});

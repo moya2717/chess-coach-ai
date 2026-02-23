@@ -20,6 +20,7 @@ import { analyzeGame, detectPatterns } from './services/analysis';
 import { getPuzzleProgress, updatePuzzleProgress } from './services/puzzles';
 import { isAuthConfigured, logoutUser, subscribeToAuthState } from './services/auth';
 import { listAnalysisRuns, recordAnalysisRun } from './services/analysis-history';
+import { buildUserFacingApiError } from './services/api-client';
 
 const MAX_GAMES_PER_ANALYSIS = 30;
 const WINDOW_TO_DAYS = {
@@ -176,7 +177,7 @@ function App() {
       setActiveTab('dashboard');
     } catch (err) {
       console.error('Analysis pipeline error:', err);
-      setError(`Something went wrong: ${err.message}. Please try again.`);
+      setError(buildUserFacingApiError(err, 'Something went wrong while loading your games. Please try again.'));
       setScreen('setup');
     } finally {
       setAnalysisProgress((prev) => ({ ...prev, active: false }));
@@ -277,7 +278,8 @@ function App() {
       console.warn('Manual game analysis failed:', err.message);
       const fallbackAnalysis = buildMaterialFallbackAnalysisFromPgn(target.pgn, target.playerColor);
       await persistAnalyzedGame(gameId, fallbackAnalysis);
-      setError(`Engine unavailable right now. Loaded material-based move review for this game.`);
+      const friendlyError = buildUserFacingApiError(err, 'Engine unavailable right now. Loaded material-based move review for this game.');
+      setError(friendlyError.includes('material-based move review') ? friendlyError : `${friendlyError} Loaded material-based move review for this game.`);
     } finally {
       setActiveAnalysisGameId(null);
       setAnalysisProgress({ active: false, completed: 1, total: 1 });
