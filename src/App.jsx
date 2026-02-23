@@ -46,6 +46,7 @@ function App() {
   const [analysisProgress, setAnalysisProgress] = useState({ active: false, completed: 0, total: 0 });
   const [activeAnalysisGameId, setActiveAnalysisGameId] = useState(null);
   const [preferredEngineMode, setPreferredEngineMode] = useState('auto');
+  const [engineAnalysisCacheByGame, setEngineAnalysisCacheByGame] = useState({});
 
   useEffect(() => {
     const unsubscribe = subscribeToAuthState((user) => {
@@ -171,6 +172,7 @@ function App() {
         setAnalysisRuns(await listAnalysisRuns(authUserId));
       }
       setGames(allGames);
+      setEngineAnalysisCacheByGame({});
       setPatterns(resolvedPatterns);
       await hydratePuzzleProgress(resolvedPatterns, { chesscom: chesscomUser, lichess: lichessUser });
       setScreen('dashboard');
@@ -363,6 +365,11 @@ function App() {
             onAnalyzeGame={handleAnalyzeGame}
             activeAnalysisGameId={activeAnalysisGameId}
             analysisInProgress={analysisProgress.active}
+            persistedEngineCache={engineAnalysisCacheByGame[selectedGame.id] || null}
+            onPersistEngineCache={(cache) => setEngineAnalysisCacheByGame((prev) => ({
+              ...prev,
+              [selectedGame.id]: cache,
+            }))}
           />
         )}
         {!requiresAuth && screen === 'puzzles' && (
