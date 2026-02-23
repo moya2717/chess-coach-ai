@@ -146,13 +146,16 @@ async function analyzeMove(chess, move, index, totalMoves, prevEval, playerColor
   const isPlayerMove = (index % 2 === 0 && playerColor === 'white') || (index % 2 === 1 && playerColor === 'black');
   const currentEval = afterEvaluation?.eval || 0;
   const previousEval = beforeEvaluation.eval || 0;
-  const evalDrop = getEvalDrop({
+  const initialEvalDrop = getEvalDrop({
     isWhiteMove: index % 2 === 0,
     previousEval,
     currentEval,
   });
 
   const evalSource = mergeEvalSources(beforeEvaluation.source, afterEvaluation.source);
+  const evalDrop = evalSource === 'material'
+    ? Math.max(initialEvalDrop, estimateMaterialHeuristicDrop({ fenBefore, fenAfter, move, moveIndex, isWhiteMove: index % 2 === 0 }))
+    : initialEvalDrop;
   const bestMoveUci = beforeEvaluation.bestMove || null;
   const playerMatchedBestMove = bestMoveUci ? toUciMove(move) === bestMoveUci : false;
   const classification = classifyMove({ evalDrop, evalSource, moveIndex, playerMatchedBestMove });
@@ -234,6 +237,49 @@ function computeMoveScore(evalSource, evalDrop) {
 
 function getEvalDrop({ isWhiteMove, previousEval, currentEval }) {
   return isWhiteMove ? Math.max(0, previousEval - currentEval) : Math.max(0, currentEval - previousEval);
+}
+
+function estimateMaterialHeuristicDrop({ fenBefore, fenAfter, move, moveIndex, isWhiteMove }) {
+  const moverSide = isWhiteMove ? 'w' : 'b';
+  const opponentSide = moverSide === 'w' ? 'b' : 'w';
+  const pieceValue = pieceValueFor(move?.piece);
+  const attackers = countSquareAttackers(fenAfter, move.to, opponentSide);
+  const defenders = countSquareAttackers(fenAfter, move.to, moverSide);
+
+  let penalty = 0;
+  if (moveIndex <= 12 && move?.piece === 'q' && !move?.captured) penalty += 0.55;
+  if (moveIndex <= 16 && move?.piece === 'k' && !String(move?.san || '').includes('O-O')) penalty += 0.35;
+  if (attackers > 0 && defenders === 0) penalty += Math.min(1.4, pieceValue * 0.24 + 0.35);
+  if (attackers > defenders && pieceValue >= 3) penalty += 0.35;
+
+  const beforeMobility = countLegalMovesForSide(fenBefore, moverSide);
+  const afterMobility = countLegalMovesForSide(fenAfter, moverSide);
+  if (beforeMobility > 0 && afterMobility <= Math.floor(beforeMobility * 0.55)) penalty += 0.25;
+
+  return Number(Math.min(2.6, penalty).toFixed(2));
+}
+
+function countSquareAttackers(fen, square, side) {
+  const chess = createChessForSideToMove(fen, side);
+  return chess
+    .moves({ verbose: true })
+    .filter((candidate) => candidate.to === square)
+    .length;
+}
+
+function countLegalMovesForSide(fen, side) {
+  return createChessForSideToMove(fen, side).moves().length;
+}
+
+function createChessForSideToMove(fen, side) {
+  const parts = String(fen || '').split(' ');
+  parts[1] = side;
+  return new Chess(parts.join(' '));
+}
+
+function pieceValueFor(piece = '') {
+  const values = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  return values[String(piece).toLowerCase()] || 0;
 }
 
 function mergeEvalSources(beforeSource, afterSource) {
